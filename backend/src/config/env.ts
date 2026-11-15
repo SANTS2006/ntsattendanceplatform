@@ -19,7 +19,10 @@ const schema = z
     CORS_ORIGINS: z.string().default(''),
     TRUST_PROXY: z.string().default('loopback'),
 
-    DATABASE_URL: z.string().min(1),
+    DATABASE_URL: z
+      .string()
+      .min(1)
+      .refine((v) => /^postgres(ql)?:\/\/\S+$/.test(v), 'DATABASE_URL must be a PostgreSQL URL starting with postgresql:// (paste only the URL from Neon → Connect, with connection pooling on)'),
     REDIS_URL: optional,
 
     JWT_ACCESS_SECRET: z.string().min(32),
@@ -72,6 +75,22 @@ const schema = z
 
 // Cloudinary's own docs call it CLOUDINARY_CLOUD_NAME; accept either spelling.
 if (!blank(process.env.CLOUDINARY_NAME) && process.env.CLOUDINARY_CLOUD_NAME) process.env.CLOUDINARY_NAME = process.env.CLOUDINARY_CLOUD_NAME;
+
+/**
+ * Tidy database URLs pasted into a dashboard: Neon's "Connect" panel offers `psql 'postgresql://…'`,
+ * and values are often pasted with quotes, a `DATABASE_URL=` prefix or surrounding spaces.
+ * Only the postgres:// URL itself is kept. Runs before Prisma reads the variables.
+ */
+export function cleanDatabaseUrl(raw: string | undefined) {
+  if (!raw) return raw;
+  let v = raw.trim().replace(/^[A-Z_]+\s*=\s*/, ''); // DATABASE_URL=…
+  const embedded = /postgres(?:ql)?:\/\/[^\s'"`]+/.exec(v); // psql '…', "…", `…`
+  if (embedded) v = embedded[0];
+  return v;
+}
+for (const key of ['DATABASE_URL', 'DIRECT_URL', 'TEST_DATABASE_URL', 'TEST_DIRECT_URL'] as const) {
+  if (process.env[key]) process.env[key] = cleanDatabaseUrl(process.env[key]);
+}
 
 // Prisma behind Neon's PgBouncer pooler needs pgbouncer=true (no server-side prepared statements).
 // Applied before the Prisma client reads DATABASE_URL, so the pooled URL can be pasted as-is.
