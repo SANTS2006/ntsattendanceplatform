@@ -39,7 +39,7 @@ test('register → 6-character email code → account created → onboard a new 
   await page.goto('/register');
   await page.getByLabel('First name').fill('Eve');
   await page.getByLabel('Last name').fill('Tester');
-  await page.getByLabel('Work email').fill(email);
+  await page.getByLabel('Email address').fill(email);
   await page.getByLabel('Password', { exact: true }).fill('E2e-Passw0rd-123');
   await page.getByLabel('Confirm password').fill('E2e-Passw0rd-123');
   await expect(page.getByText('Excellent')).toBeVisible(); // strength meter

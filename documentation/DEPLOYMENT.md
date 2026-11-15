@@ -38,7 +38,10 @@ background jobs run inside the web service (`WORKERS_IN_API=true`), Redis comes 
 
 1. Push the repository to GitHub/GitLab.
 2. Render dashboard → **New → Blueprint** → select the repository. Render reads `render.yaml`.
-3. Fill in every value Render prompts for (`sync: false` entries in the `ntsattend` group).
+3. Before the first deploy, Render shows a form with every `sync: false` variable on the
+   `ntsattend` service — fill them all in (copy them from your `backend/.env`), then click
+   **Deploy Blueprint**. If an earlier attempt already created a service without values, delete that
+   service (or add the values under *Environment*) and create the Blueprint again.
    Generate the four secrets locally:
 
    ```bash

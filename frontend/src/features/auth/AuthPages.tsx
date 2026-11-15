@@ -355,7 +355,7 @@ export function RegisterPage() {
             <Input label="First name" autoComplete="given-name" icon={<User />} error={e.firstName?.message} {...form.register('firstName')} />
             <Input label="Last name" autoComplete="family-name" icon={<User />} error={e.lastName?.message} {...form.register('lastName')} />
           </div>
-          <Input label="Work email" type="email" autoComplete="email" icon={<Mail />} error={e.email?.message} {...form.register('email')} />
+          <Input label="Email address" type="email" autoComplete="email" icon={<Mail />} error={e.email?.message} {...form.register('email')} />
           <Input label="Phone (optional)" type="tel" autoComplete="tel" icon={<Phone />} {...form.register('phone')} />
           <PasswordInput label="Password" autoComplete="new-password" error={e.password?.message} {...form.register('password')} />
           <StrengthMeter password={pw} />

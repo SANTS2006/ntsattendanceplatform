@@ -7,72 +7,15 @@
 #   - no Render Key Value (Redis comes from your own Redis Cloud free database via REDIS_URL),
 #   - no preDeployCommand (paid-only) — migrations run at the end of the build instead.
 #
-# External services (values entered in the Render dashboard, never committed):
-#   Neon (PostgreSQL) · Redis Cloud · Cloudinary (files) · Brevo (email) · Cloudflare R2 (backups) · Google
+# Every secret is declared directly on the service with `sync: false`. Render only prompts for
+# `sync: false` values that live on a service (not inside an environment group), so when you
+# create the Blueprint, Render shows a form for each of them BEFORE the first deploy starts.
+#
+# External services: Neon (PostgreSQL) · Redis Cloud · Cloudinary (files) · Brevo (email) ·
+# Cloudflare R2 (backups) · Google (optional sign-in)
 #
 # Free web services sleep after ~15 minutes without traffic and take up to a minute to wake;
 # scheduled backups run whenever the service is awake.
-
-envVarGroups:
-  - name: ntsattend
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: NODE_VERSION
-        value: "22"
-      - key: TRUST_PROXY
-        value: "1" # exactly one proxy (Render's load balancer) in front of the app
-      - key: APP_URL
-        value: https://ntsattend.onrender.com
-      - key: EMAIL_BASE_URL
-        value: https://ntsattend.onrender.com
-      - key: WORKERS_IN_API
-        value: "true"
-      # Neon: pooled (-pooler) URL for the app; direct URL for migrations
-      - key: DATABASE_URL
-        sync: false
-      - key: DIRECT_URL
-        sync: false
-      # Redis Cloud (free database) connection URL: redis://default:<password>@<host>:<port>
-      - key: REDIS_URL
-        sync: false
-      # Secrets — generate each with: node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
-      - key: JWT_ACCESS_SECRET
-        sync: false
-      - key: JWT_PUBLIC_SECRET
-        sync: false
-      - key: DATA_ENCRYPTION_KEY # 32 random bytes, base64: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
-        sync: false
-      - key: HASH_PEPPER
-        sync: false
-      # Cloudinary (all uploaded files)
-      - key: CLOUDINARY_NAME
-        sync: false
-      - key: CLOUDINARY_API_KEY
-        sync: false
-      - key: CLOUDINARY_API_SECRET
-        sync: false
-      # Brevo (transactional email)
-      - key: BREVO_API_KEY
-        sync: false
-      - key: MAIL_FROM
-        sync: false # e.g. NTSAttend <no-reply@your-domain.com> (a verified Brevo sender)
-      # Cloudflare R2 (database backups) — set all four or none
-      - key: R2_ACCOUNT_ID
-        sync: false
-      - key: R2_ACCESS_KEY_ID
-        sync: false
-      - key: R2_SECRET_ACCESS_KEY
-        sync: false
-      - key: R2_BUCKET
-        sync: false
-      - key: BACKUP_RETENTION_DAYS
-        value: "30"
-      - key: BACKUP_INTERVAL_HOURS
-        value: "24"
-      # Optional "Continue with Google"
-      - key: GOOGLE_CLIENT_ID
-        sync: false
 
 services:
   - type: web
@@ -85,4 +28,64 @@ services:
     healthCheckPath: /health/ready
     autoDeploy: true
     envVars:
-      - fromGroup: ntsattend
+      # ── Fixed settings ──────────────────────────────────────────────────────
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: TRUST_PROXY
+        value: "1" # exactly one proxy (Render's load balancer) in front of the app
+      - key: APP_URL
+        value: https://ntsattend.onrender.com
+      - key: EMAIL_BASE_URL
+        value: https://ntsattend.onrender.com
+      - key: WORKERS_IN_API
+        value: "true"
+      - key: BACKUP_RETENTION_DAYS
+        value: "30"
+      - key: BACKUP_INTERVAL_HOURS
+        value: "24"
+
+      # ── Prompted when you create the Blueprint ───────────────────────────────
+      # Neon: pooled (-pooler) URL for the app; direct URL for migrations
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      # Redis Cloud (free database): redis://default:<password>@<host>:<port>
+      - key: REDIS_URL
+        sync: false
+      # Secrets — generate each with: node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_PUBLIC_SECRET
+        sync: false
+      # 32 random bytes, base64: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+      - key: DATA_ENCRYPTION_KEY
+        sync: false
+      - key: HASH_PEPPER
+        sync: false
+      # Cloudinary (all uploaded files)
+      - key: CLOUDINARY_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      # Brevo (transactional email) — MAIL_FROM e.g. NTSAttend <no-reply@your-domain.com>, a verified sender
+      - key: BREVO_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      # Cloudflare R2 (database backups) — set all four
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      # "Continue with Google" OAuth client id
+      - key: GOOGLE_CLIENT_ID
+        sync: false

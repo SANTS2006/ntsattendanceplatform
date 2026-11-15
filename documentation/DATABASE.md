@@ -29,7 +29,7 @@ future `migrate` runs).
    - *Connection pooling* **on** (host contains `-pooler`) → `DATABASE_URL`, and append
      `&pgbouncer=true&connect_timeout=15`;
    - *Connection pooling* **off** (direct host) → `DIRECT_URL` (used by migrations).
-2. Put both in `backend/.env` (locally) or the Render env group (production).
+2. Put both in `backend/.env` (locally) or the Render service settings (production).
 3. Create the tables:
 
    ```bash
