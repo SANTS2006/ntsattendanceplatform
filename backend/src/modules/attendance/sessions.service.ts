@@ -1,3 +1,4 @@
+import { clampRadius } from '../../lib/geo.js';
 import type { Request } from 'express';
 import type { AttendanceSession, Prisma } from '@prisma/client';
 import { env } from '../../config/env.js';
@@ -83,7 +84,7 @@ export async function createSession(ctx: TenantContext, input: CreateSessionInpu
       expiresAt: new Date(now.getTime() + duration * 60_000),
       latitude,
       longitude,
-      radiusM: input.radiusM ?? settings.defaultGeofenceRadiusM,
+      radiusM: clampRadius(input.radiusM ?? settings.defaultGeofenceRadiusM),
       minAccuracyM: input.minAccuracyM ?? settings.minGpsAccuracyM,
       locationRequired,
       selfieRequired: input.selfieRequired ?? settings.selfieRequired,
@@ -216,7 +217,7 @@ export async function replaceSession(ctx: TenantContext, id: string, durationMin
     ctx,
     {
       classId: s.classId, eventId: s.eventId, title: s.title, durationMinutes: durationMinutes ?? snap.durationMinutes,
-      latitude: s.latitude, longitude: s.longitude, radiusM: s.radiusM, minAccuracyM: s.minAccuracyM,
+      latitude: s.latitude, longitude: s.longitude, radiusM: clampRadius(s.radiusM), minAccuracyM: s.minAccuracyM,
       locationRequired: s.locationRequired, selfieRequired: s.selfieRequired, requireEnrollment: s.requireEnrollment,
       allowLate: s.allowLate, qrRotationSeconds: snap.qrRotationSeconds ?? null,
       lateAfterMinutes: s.lateAfter ? Math.max(1, Math.round((s.lateAfter.getTime() - s.startsAt.getTime()) / 60_000)) : null,

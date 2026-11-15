@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { env } from '../../config/env.js';
 import { ok, created } from '../../lib/http.js';
+import { forbidden } from '../../lib/errors.js';
 import { routes } from '../../lib/route.js';
 import { csrfGuard } from '../../middleware/csrf.js';
 import { limits } from '../../middleware/rateLimit.js';
@@ -203,6 +204,17 @@ r(
 r(
   { method: 'post', path: '/switch-organization', summary: 'Switch the active organization', tags: T, access: 'user', body: z.object({ organizationId: z.string().uuid() }) },
   async (req, res) => ok(res, await auth.switchOrganization(req.auth!.sub, req.auth!.sid, req.valid.body.organizationId)),
+);
+
+r(
+  {
+    method: 'post', path: '/switch-role', summary: 'Act as one of your roles in the active organization (only that role applies)', tags: T, access: 'user',
+    body: z.object({ role: z.string().min(1).max(64) }),
+  },
+  async (req, res) => {
+    if (!req.auth!.org) throw forbidden('Select an organization first', 'NO_ORGANIZATION');
+    ok(res, await auth.switchRole(req.auth!.sub, req.auth!.org, req.valid.body.role, req), { message: 'Role switched' });
+  },
 );
 
 r({ method: 'get', path: '/sessions', summary: 'List active device sessions', tags: T, access: 'user' }, async (req, res) =>

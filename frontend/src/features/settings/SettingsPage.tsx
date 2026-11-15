@@ -202,7 +202,7 @@ function AttendanceTab() {
   if (!s) return <Spinner />;
   const up = (v: Partial<OrgSettings>) => setS({ ...s, ...v });
   const attErr: Record<string, string | undefined> = {
-    defaultGeofenceRadiusM: NUM_RANGE(s.defaultGeofenceRadiusM, 5, 50000, 'radius'),
+    defaultGeofenceRadiusM: NUM_RANGE(s.defaultGeofenceRadiusM, 14, 20, 'radius'),
     minGpsAccuracyM: NUM_RANGE(s.minGpsAccuracyM, 1, 10000, 'GPS accuracy'),
     maxFailedLocationAttempts: NUM_RANGE(s.maxFailedLocationAttempts, 1, 100, 'number of attempts'),
     defaultQrExpiryMin: NUM_RANGE(s.defaultQrExpiryMin, 1, 1440, 'QR expiry'),
@@ -217,7 +217,7 @@ function AttendanceTab() {
       <Card title="Location verification">
         <Toggle label="Location verification is mandatory" description="Students must share a location within the session radius." checked={s.locationRequired} onChange={(v) => up({ locationRequired: v })} />
         <div className="mt-3 grid gap-4 sm:grid-cols-2">
-          <Input label="Default geofence radius (m)" type="number" min={5} max={50000} error={ae('defaultGeofenceRadiusM')} value={s.defaultGeofenceRadiusM} onChange={num('defaultGeofenceRadiusM')} />
+          <Input label="Default geofence radius (m)" hint="Between 14 and 20 metres." type="number" min={14} max={20} error={ae('defaultGeofenceRadiusM')} value={s.defaultGeofenceRadiusM} onChange={num('defaultGeofenceRadiusM')} />
           <Input label="Minimum GPS accuracy (m)" type="number" min={1} max={10000} error={ae('minGpsAccuracyM')} value={s.minGpsAccuracyM} onChange={num('minGpsAccuracyM')} />
           <Input label="Max failed location checks" type="number" min={1} max={100} error={ae('maxFailedLocationAttempts')} value={s.maxFailedLocationAttempts} onChange={num('maxFailedLocationAttempts')} hint="Per device, per session, within 15 minutes." />
         </div>

@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'rea
 import { Link, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Bell, BellRing, CheckCheck, ChevronDown, LogOut, Mail, UserCog } from 'lucide-react';
+import { ArrowRight, Bell, BellRing, Check, CheckCheck, ChevronDown, LogOut, Mail, Repeat, UserCog } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { errorMessage } from '@/api/client';
 import { get, getPaged, post } from '@/api/client';
 import { useAuth } from '@/auth/AuthProvider';
 import { Avatar, useRoleLabel } from '@/components/UserCard';
@@ -44,8 +46,26 @@ function Popover({ children, className }: { children: ReactNode; className?: str
 /* ── Profile ─────────────────────────────────────────────────────────────── */
 
 export function ProfileMenu({ context = 'org' }: { context?: 'org' | 'platform' }) {
-  const { me, logout } = useAuth();
+  const { me, org, logout, switchRole } = useAuth();
   const role = useRoleLabel(context);
+  const nav = useNavigate();
+  const membership = context === 'org' ? me?.organizations.find((o) => o.id === org?.id) : undefined;
+  const options = membership?.roleOptions ?? [];
+  const [switching, setSwitching] = useState<string | null>(null);
+  const doSwitch = async (id: string) => {
+    setSwitching(id);
+    try {
+      await switchRole(id);
+      const r = options.find((o) => o.id === id);
+      toast.success(`You are now acting as ${r?.name ?? 'the selected role'}`);
+      close();
+      nav('/app');
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setSwitching(null);
+    }
+  };
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const close = () => setOpen(false);
@@ -81,6 +101,27 @@ export function ProfileMenu({ context = 'org' }: { context?: 'org' | 'platform' 
                 <UserCog className="h-[18px] w-[18px]" /> Profile settings
               </Link>
               <InstallAppMenuItem onDone={close} />
+              {options.length > 1 && (
+                <div className="mt-1 border-t border-slate-100 px-1 pt-2">
+                  <p className="mb-1 flex items-center gap-1.5 px-2 text-[11px] font-bold tracking-wider text-slate-500 uppercase"><Repeat className="h-3.5 w-3.5" /> Switch role</p>
+                  {options.map((o) => {
+                    const isActive = o.id === membership?.activeRole;
+                    return (
+                      <button
+                        key={o.id}
+                        role="menuitemradio"
+                        aria-checked={isActive}
+                        disabled={isActive || !!switching}
+                        onClick={() => void doSwitch(o.id)}
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-brand-50 hover:text-brand-700 disabled:cursor-default disabled:hover:bg-transparent"
+                      >
+                        <span className="min-w-0 flex-1 truncate">{o.name}{o.department ? <span className="font-normal text-slate-500"> · {o.department}</span> : null}</span>
+                        {isActive ? <Check className="h-4 w-4 text-brand-600" /> : switching === o.id ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <div className="px-3 py-2">
                 <p className="mb-1.5 text-[11px] font-bold tracking-wider text-slate-400 uppercase">Appearance</p>
                 <ThemeSegmented />

@@ -1,3 +1,4 @@
+import { bestPosition, GeoError } from '@/lib/geo';
 import { http, toApiError, type ApiSuccess } from '@/api/client';
 
 /** Anonymous student attendance API (no account; chained by a short-lived attempt token). */
@@ -95,13 +96,9 @@ export function formatSatisfied(value: string, f: StudentIdFormat): boolean {
   return re.test(body);
 }
 
-export function getPosition(): Promise<Coords> {
-  return new Promise((resolve, reject) => {
-    if (!('geolocation' in navigator)) return reject(Object.assign(new Error('unsupported'), { code: 'UNSUPPORTED' }));
-    navigator.geolocation.getCurrentPosition(
-      (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy }),
-      (e) => reject(Object.assign(new Error(e.message), { code: e.code === 1 ? 'DENIED' : e.code === 3 ? 'TIMEOUT' : 'UNAVAILABLE' })),
-      { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 },
-    );
+/** Waits (up to 20 s) for a precise GPS fix and keeps the most accurate reading. */
+export function getPosition(onProgress?: (accuracy: number) => void): Promise<Coords> {
+  return bestPosition({ targetAccuracy: 15, maxWaitMs: 20_000, onProgress: (f) => onProgress?.(f.accuracy) }).catch((e) => {
+    throw Object.assign(new Error(e instanceof Error ? e.message : 'location error'), { code: e instanceof GeoError ? (e.code === 'INSECURE' ? 'UNSUPPORTED' : e.code) : 'UNAVAILABLE' });
   });
 }

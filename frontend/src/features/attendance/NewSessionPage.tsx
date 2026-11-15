@@ -31,7 +31,7 @@ export function NewSessionPage() {
   const [duration, setDuration] = useState(15);
   const [customDuration, setCustomDuration] = useState('');
   const [title, setTitle] = useState('');
-  const [radius, setRadius] = useState('100');
+  const [radius, setRadius] = useState('20');
   const [minAccuracy, setMinAccuracy] = useState('100');
   const [locationRequired, setLocationRequired] = useState(true);
   const [selfieRequired, setSelfieRequired] = useState(true);
@@ -53,7 +53,7 @@ export function NewSessionPage() {
     if (!s) return;
     setDuration(DURATIONS.includes(s.defaultQrExpiryMin) ? s.defaultQrExpiryMin : 15);
     if (!DURATIONS.includes(s.defaultQrExpiryMin)) setCustomDuration(String(s.defaultQrExpiryMin));
-    setRadius(String(s.defaultGeofenceRadiusM));
+    setRadius(String(Math.min(20, Math.max(14, s.defaultGeofenceRadiusM))));
     setMinAccuracy(String(s.minGpsAccuracyM));
     setLocationRequired(s.locationRequired);
     setSelfieRequired(s.selfieRequired);
@@ -93,7 +93,7 @@ export function NewSessionPage() {
     if (title.length > 150) e.title = 'Title must be at most 150 characters';
     if (customDuration && !intIn(customDuration, 1, 1440)) e.duration = 'Enter a duration between 1 and 1440 minutes';
     if (lateAfter && !intIn(lateAfter, 1, 1440)) e.lateAfter = 'Enter a whole number of minutes between 1 and 1440';
-    if (!intIn(radius, 5, 50000)) e.radius = 'Enter a radius between 5 and 50,000 metres';
+    if (!intIn(radius, 14, 20)) e.radius = 'Enter a radius between 14 and 20 metres';
     if (!intIn(minAccuracy, 1, 10000)) e.minAccuracy = 'Enter an accuracy between 1 and 10,000 metres';
     if (locationRequired && !point) e.location = 'Capture your current location (or save a venue location on the class/event) before generating the QR code.';
     return e;
@@ -191,36 +191,39 @@ export function NewSessionPage() {
           <div
             className={clsx(
               'mt-3 flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between',
-              tone === 'ok' && 'border-emerald-200 bg-emerald-50/60',
-              tone === 'error' && 'border-rose-200 bg-rose-50/60',
-              (tone === 'idle' || tone === 'busy') && 'border-slate-200 bg-slate-50/60',
+              tone === 'ok' && 'border-emerald-300 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10',
+              tone === 'error' && 'border-rose-300 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10',
+              (tone === 'idle' || tone === 'busy') && 'border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-white/5',
             )}
             aria-live="polite"
           >
             <div className="flex min-w-0 items-start gap-3">
-              <span className={clsx('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', tone === 'ok' ? 'bg-emerald-100 text-emerald-700' : tone === 'error' ? 'bg-rose-100 text-rose-600' : 'bg-brand-50 text-brand-600')}>
+              <span className={clsx('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', tone === 'ok' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' : tone === 'error' ? 'bg-rose-100 text-rose-600 dark:bg-rose-500/20 dark:text-rose-300' : 'bg-brand-50 text-brand-600')}>
                 {tone === 'ok' ? <CheckCircle2 className="h-5 w-5" /> : tone === 'error' ? <AlertTriangle className="h-5 w-5" /> : <MapPin className={clsx('h-5 w-5', tone === 'busy' && 'animate-bounce')} />}
               </span>
               <div className="min-w-0 text-sm">
                 {tone === 'busy' ? (
-                  <p className="font-semibold text-slate-800">Getting your current location…</p>
+                  <>
+                    <p className="font-semibold text-slate-900 dark:text-white">Getting a precise location…</p>
+                    <p className="text-xs text-slate-700 dark:text-slate-300">{geo.progress == null ? 'Waiting for GPS…' : `Improving accuracy… ±${geo.progress} m`} Stand still at the venue.</p>
+                  </>
                 ) : point ? (
                   <>
-                    <p className="font-semibold text-slate-800">{source === 'device' ? 'Your current location will be the venue' : 'Using the venue location saved on this ' + target}</p>
-                    <p className="text-xs text-slate-500">
+                    <p className="font-semibold text-slate-900 dark:text-white">{source === 'device' ? 'Your current location will be the venue' : 'Using the venue location saved on this ' + target}</p>
+                    <p className="text-xs text-slate-700 dark:text-slate-300">
                       {source === 'device' && geo.fix ? `Accuracy ±${geo.fix.accuracy} m · ` : ''}
                       <a className="font-medium text-brand-700" href={`https://www.openstreetmap.org/?mlat=${point.latitude}&mlon=${point.longitude}#map=18/${point.latitude}/${point.longitude}`} target="_blank" rel="noreferrer">
                         View on map
                       </a>
                     </p>
                     {source === 'device' && geo.fix && geo.fix.accuracy > Number(minAccuracy) && (
-                      <p className="mt-1 text-xs text-amber-700">Your reading is less accurate than the minimum below — recapture near a window or with Wi-Fi on.</p>
+                      <p className="mt-1 text-xs font-medium text-amber-800 dark:text-amber-300">This reading (±{geo.fix.accuracy} m) is less precise than the minimum below. Recapture from a phone at the venue, outdoors or near a window — laptops usually can’t get a precise fix.</p>
                     )}
                   </>
                 ) : (
                   <>
                     <p className="font-semibold text-slate-800">{locationRequired ? 'Location not captured yet' : 'No location (students’ positions won’t be checked)'}</p>
-                    <p className="text-xs text-slate-500">{geo.error ?? errors.location ?? 'Stand at the venue and use your current location.'}</p>
+                    <p className="text-xs text-slate-700 dark:text-slate-300">{geo.error ?? errors.location ?? 'Stand at the venue and use your current location.'}</p>
                   </>
                 )}
               </div>
@@ -231,7 +234,7 @@ export function NewSessionPage() {
           </div>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Input label="Allowed radius (metres)" type="number" min={5} max={50000} value={radius} error={errors.radius} onChange={(e) => setRadius(e.target.value)} />
+            <Input label="Allowed radius (metres)" type="number" min={14} max={20} value={radius} error={errors.radius} hint="Students must be within 14–20 m of this location." onChange={(e) => setRadius(e.target.value)} />
             <Input label="Minimum GPS accuracy (metres)" type="number" min={1} max={10000} value={minAccuracy} error={errors.minAccuracy} onChange={(e) => setMinAccuracy(e.target.value)} hint="Readings less accurate than this are rejected." />
           </div>
         </Card>

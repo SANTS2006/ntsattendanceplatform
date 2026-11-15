@@ -139,26 +139,26 @@ enum SecuritySeverity {
 // ───────────────────────────── Identity ─────────────────────────────
 
 model User {
-  id               String     @id @default(uuid()) @db.Uuid
-  email            String     @unique
-  passwordHash     String? // null for accounts that only sign in with Google
-  googleId         String?    @unique
-  avatarUrl        String? // Google profile photo
-  avatarKey        String? // uploaded profile picture (private Cloudinary asset)
-  termsAcceptedAt  DateTime? // Terms of Service and Privacy Policy acceptance
-  firstName        String
-  lastName         String
-  phone            String?
-  status           UserStatus @default(ACTIVE)
-  emailVerifiedAt  DateTime?
-  mfaEnabled       Boolean    @default(false)
-  mfaSecret        String? // AES-256-GCM encrypted TOTP secret
-  failedLoginCount Int        @default(0)
-  lockedUntil      DateTime?
-  lastLoginAt      DateTime?
+  id                String     @id @default(uuid()) @db.Uuid
+  email             String     @unique
+  passwordHash      String? // null for accounts that only sign in with Google
+  googleId          String?    @unique
+  avatarUrl         String? // Google profile photo
+  avatarKey         String? // uploaded profile picture (private Cloudinary asset)
+  termsAcceptedAt   DateTime? // Terms of Service and Privacy Policy acceptance
+  firstName         String
+  lastName          String
+  phone             String?
+  status            UserStatus @default(ACTIVE)
+  emailVerifiedAt   DateTime?
+  mfaEnabled        Boolean    @default(false)
+  mfaSecret         String? // AES-256-GCM encrypted TOTP secret
+  failedLoginCount  Int        @default(0)
+  lockedUntil       DateTime?
+  lastLoginAt       DateTime?
   passwordChangedAt DateTime?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   memberships   OrganizationMembership[]
   refreshTokens RefreshToken[]
@@ -197,19 +197,19 @@ model UserToken {
 /// Sign-up awaiting email verification. The User row is only created once the emailed
 /// 6-character code is confirmed. Only an HMAC of the code is stored.
 model PendingRegistration {
-  id           String   @id @default(uuid()) @db.Uuid
-  email        String   @unique
-  firstName    String
-  lastName     String
-  phone        String?
-  passwordHash String
-  codeHash     String
+  id              String   @id @default(uuid()) @db.Uuid
+  email           String   @unique
+  firstName       String
+  lastName        String
+  phone           String?
+  passwordHash    String
+  codeHash        String
   termsAcceptedAt DateTime @default(now())
-  attempts     Int      @default(0)
-  sendCount    Int      @default(1)
-  expiresAt    DateTime
-  lastSentAt   DateTime @default(now())
-  createdAt    DateTime @default(now())
+  attempts        Int      @default(0)
+  sendCount       Int      @default(1)
+  expiresAt       DateTime
+  lastSentAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
 
   @@index([expiresAt])
   @@map("pending_registrations")
@@ -299,7 +299,7 @@ model OrganizationSettings {
 
   // Attendance defaults
   locationRequired          Boolean @default(true)
-  defaultGeofenceRadiusM    Int     @default(100)
+  defaultGeofenceRadiusM    Int     @default(20)
   minGpsAccuracyM           Int     @default(100)
   selfieRequired            Boolean @default(true)
   requireEnrollment         Boolean @default(true)
@@ -323,6 +323,8 @@ model OrganizationMembership {
   status         MembershipStatus @default(ACTIVE)
   isOwner        Boolean          @default(false)
   title          String?
+  /// Role the member is currently acting as: "owner" or a MembershipRole id. Null = default (owner, else first role).
+  activeRole     String?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
@@ -571,8 +573,8 @@ model Class {
 }
 
 model Student {
-  id               String              @id @default(uuid()) @db.Uuid
-  organizationId   String              @db.Uuid
+  id               String             @id @default(uuid()) @db.Uuid
+  organizationId   String             @db.Uuid
   studentNumber    String // as entered/imported
   normalizedNumber String // normalized per organization settings, used for lookup
   firstName        String
@@ -580,18 +582,18 @@ model Student {
   fullName         String
   email            String?
   phone            String?
-  programId        String?             @db.Uuid
-  departmentId     String?             @db.Uuid
-  levelId          String?             @db.Uuid
+  programId        String?            @db.Uuid
+  departmentId     String?            @db.Uuid
+  levelId          String?            @db.Uuid
   academicYear     String?
-  status           StudentStatus       @default(ACTIVE)
+  status           StudentStatus      @default(ACTIVE)
   metadata         Json?
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
-  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  program          Program?            @relation(fields: [programId], references: [id], onDelete: Restrict)
-  department       Department?         @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  level            AcademicLevel?      @relation(fields: [levelId], references: [id], onDelete: Restrict)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  program          Program?           @relation(fields: [programId], references: [id], onDelete: Restrict)
+  department       Department?        @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  level            AcademicLevel?     @relation(fields: [levelId], references: [id], onDelete: Restrict)
   enrollments      Enrollment[]
   eventEntries     EventParticipant[]
   attendance       AttendanceRecord[]
@@ -666,22 +668,22 @@ model Enrollment {
 // ───────────────────────────── Events ─────────────────────────────
 
 model Event {
-  id                   String              @id @default(uuid()) @db.Uuid
-  organizationId       String              @db.Uuid
-  name                 String
-  description          String?
-  venue                String?
-  startsAt             DateTime
-  endsAt               DateTime
-  requireRegistration  Boolean             @default(true)
-  defaultLatitude      Float?
-  defaultLongitude     Float?
-  status               RecordStatus        @default(ACTIVE)
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
-  participants         EventParticipant[]
-  managers             EventManager[]
-  attendanceSessions   AttendanceSession[]
+  id                  String              @id @default(uuid()) @db.Uuid
+  organizationId      String              @db.Uuid
+  name                String
+  description         String?
+  venue               String?
+  startsAt            DateTime
+  endsAt              DateTime
+  requireRegistration Boolean             @default(true)
+  defaultLatitude     Float?
+  defaultLongitude    Float?
+  status              RecordStatus        @default(ACTIVE)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  participants        EventParticipant[]
+  managers            EventManager[]
+  attendanceSessions  AttendanceSession[]
 
   @@unique([organizationId, id])
   @@index([organizationId, startsAt])
@@ -719,15 +721,15 @@ model EventManager {
 // ───────────────────────────── Attendance ─────────────────────────────
 
 model AttendanceSession {
-  id                String                  @id @default(uuid()) @db.Uuid
-  organizationId    String                  @db.Uuid
+  id                String                   @id @default(uuid()) @db.Uuid
+  organizationId    String                   @db.Uuid
   title             String
-  classId           String?                 @db.Uuid
-  eventId           String?                 @db.Uuid
-  lecturerId        String?                 @db.Uuid
-  createdByUserId   String                  @db.Uuid
-  status            AttendanceSessionStatus @default(ACTIVE)
-  startsAt          DateTime                @default(now())
+  classId           String?                  @db.Uuid
+  eventId           String?                  @db.Uuid
+  lecturerId        String?                  @db.Uuid
+  createdByUserId   String                   @db.Uuid
+  status            AttendanceSessionStatus  @default(ACTIVE)
+  startsAt          DateTime                 @default(now())
   expiresAt         DateTime
   closedAt          DateTime?
   revokedAt         DateTime?
@@ -739,14 +741,14 @@ model AttendanceSession {
   selfieRequired    Boolean
   requireEnrollment Boolean
   lateAfter         DateTime?
-  allowLate         Boolean                 @default(true)
+  allowLate         Boolean                  @default(true)
   configSnapshot    Json
-  replacesSessionId String?                 @db.Uuid
-  createdAt         DateTime                @default(now())
-  updatedAt         DateTime                @updatedAt
-  class             Class?                  @relation(fields: [classId], references: [id], onDelete: Restrict)
-  event             Event?                  @relation(fields: [eventId], references: [id], onDelete: Restrict)
-  lecturer          Lecturer?               @relation(fields: [lecturerId], references: [id], onDelete: Restrict)
+  replacesSessionId String?                  @db.Uuid
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  class             Class?                   @relation(fields: [classId], references: [id], onDelete: Restrict)
+  event             Event?                   @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  lecturer          Lecturer?                @relation(fields: [lecturerId], references: [id], onDelete: Restrict)
   qrTokens          QRToken[]
   records           AttendanceRecord[]
   selfies           AttendanceSelfie[]
@@ -942,6 +944,7 @@ model AuditLog {
   @@index([organizationId, createdAt])
   @@index([actorUserId, createdAt])
   @@index([action, createdAt])
+  @@index([organizationId, targetType, targetId, createdAt])
   @@map("audit_logs")
 }
 
@@ -972,7 +975,6 @@ model PlatformSetting {
 
   @@map("platform_settings")
 }
-
 
 // ───────────────────────────── Account: email change ─────────────────────────────
 
@@ -1017,18 +1019,18 @@ enum SupportPriority {
 
 /// Conversation between an organization (owner/administrators) and the platform Super Admins.
 model SupportTicket {
-  id             String          @id @default(uuid()) @db.Uuid
-  organizationId String          @db.Uuid
-  createdById    String          @db.Uuid
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @db.Uuid
+  createdById    String           @db.Uuid
   subject        String
-  category       SupportCategory @default(GENERAL)
-  priority       SupportPriority @default(NORMAL)
-  status         SupportStatus   @default(OPEN)
-  lastMessageAt  DateTime        @default(now())
-  orgUnread      Boolean         @default(false)
-  platformUnread Boolean         @default(true)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  category       SupportCategory  @default(GENERAL)
+  priority       SupportPriority  @default(NORMAL)
+  status         SupportStatus    @default(OPEN)
+  lastMessageAt  DateTime         @default(now())
+  orgUnread      Boolean          @default(false)
+  platformUnread Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
   messages       SupportMessage[]
 
   @@index([organizationId, lastMessageAt])

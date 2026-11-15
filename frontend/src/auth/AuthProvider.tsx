@@ -19,6 +19,8 @@ type AuthState = {
   acceptSession: (accessToken: string) => Promise<void>;
   logout: () => Promise<void>;
   switchOrganization: (organizationId: string) => Promise<void>;
+  /** Act as another of your roles; only that role's permissions apply afterwards. */
+  switchRole: (role: string) => Promise<void>;
   reload: () => Promise<void>;
 };
 
@@ -103,9 +105,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const r = await post<{ accessToken: string }>('/auth/switch-organization', { organizationId });
         await acceptSession(r.accessToken);
       },
+      switchRole: async (role) => {
+        await post('/auth/switch-role', { role });
+        qc.clear(); // nothing cached under the previous role's permissions may leak into the new one
+        await reload();
+      },
       reload,
     }),
-    [status, me, org, acceptSession, clear, reload],
+    [status, me, org, acceptSession, clear, reload, qc],
   );
 
   return (

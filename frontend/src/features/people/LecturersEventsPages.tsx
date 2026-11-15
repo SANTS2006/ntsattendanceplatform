@@ -12,6 +12,7 @@ import { useOptions } from '@/hooks/useOptions';
 import type { EventItem } from '@/types';
 import { fmtDateTime } from '@/utils/format';
 import { EnrollModal } from '../academics/AcademicsPages';
+import { RecordHistory } from '@/components/History';
 
 type Lecturer = {
   id: string; firstName: string; lastName: string; title: string | null; email: string; staffNumber: string | null; phone: string | null; status: string;
@@ -53,12 +54,12 @@ const toLocal = (iso: string | null) => (iso ? new Date(new Date(iso).getTime() 
 
 export function EventsPage() {
   const nav = useNavigate();
-  const { org } = useAuth();
+  const { org, can } = useAuth();
   return (
     <div>
       <PageHeader title="Events" description="Conferences, orientations, workshops — anything that needs attendance without a class structure." />
       <ResourceManager<EventItem>
-        title="Event" url="/events" queryKey="events" managePermission="events.manage" deleteLabel="Archive"
+        title="Event" url="/events" queryKey="events" managePermission={["events.manage", "events.manage_assigned"]} importResource={can('events.manage') ? undefined : false} deleteLabel="Archive"
         onRowClick={(r) => nav(`/app/events/${r.id}`)}
         toForm={(r) => ({ ...r, startsAt: toLocal(r.startsAt), endsAt: toLocal(r.endsAt) })}
         columns={[
@@ -125,7 +126,7 @@ export function EventDetailPage() {
             {e.managers.length ? e.managers.map((m) => <p key={m.lecturer.id} className="text-sm">{m.lecturer.firstName} {m.lecturer.lastName}</p>) : <p className="text-sm text-slate-500">None assigned</p>}
           </div>
         </Card>
-        <Card title="Participants" className="lg:col-span-2" padded={false} actions={can('events.manage') && <Button size="sm" icon={<UserPlus className="h-4 w-4" />} onClick={() => setEnroll(true)}>Register participants</Button>}>
+        <Card title="Participants" className="lg:col-span-2" padded={false} actions={(can('events.manage') || can('events.manage_assigned')) && <Button size="sm" icon={<UserPlus className="h-4 w-4" />} onClick={() => setEnroll(true)}>Register participants</Button>}>
           <div className="border-b border-slate-100 p-3"><SearchInput value={parts.search} onChange={parts.setSearch} /></div>
           <DataTable
             rows={parts.rows}
@@ -136,13 +137,14 @@ export function EventDetailPage() {
               { key: 'i', header: 'ID', render: (p) => <span className="font-mono text-xs">{p.student.studentNumber}</span> },
               { key: 'n', header: 'Name', render: (p) => p.student.fullName },
               { key: 'e', header: 'Email', render: (p) => p.student.email ?? '—' },
-              ...(can('events.manage') ? [{ key: 'x', header: '', render: (p: Participant) => <Button size="sm" variant="ghost" aria-label="Remove" icon={<Trash2 className="h-4 w-4 text-rose-500" />} onClick={() => remove.mutate(p.student.id)} /> }] : []),
+              ...(can('events.manage') || can('events.manage_assigned') ? [{ key: 'x', header: '', render: (p: Participant) => <Button size="sm" variant="ghost" aria-label="Remove" icon={<Trash2 className="h-4 w-4 text-rose-500" />} onClick={() => remove.mutate(p.student.id)} /> }] : []),
             ]}
           />
           {parts.meta && <Pagination page={parts.meta.page} totalPages={parts.meta.totalPages} total={parts.meta.total} onPage={parts.setPage} />}
         </Card>
       </div>
-      <EnrollModal open={enroll} onClose={() => setEnroll(false)} title="Register participants" url={`/events/${id}/participants`} body={(ids) => ({ studentIds: ids })} onDone={() => qc.invalidateQueries({ queryKey: [`participants-${id}`] })} />
+      <Card title="History" className="mt-6"><RecordHistory targetType="Event" targetId={id} /></Card>
+      <EnrollModal open={enroll} onClose={() => setEnroll(false)} title="Register participants" url={`/events/${id}/participants`} candidatesUrl={`/events/${id}/candidates`} body={(ids) => ({ studentIds: ids })} onDone={() => qc.invalidateQueries({ queryKey: [`participants-${id}`] })} />
       <Modal open={mgrOpen} onClose={() => setMgrOpen(false)} title="Assign attendance staff" size="sm" footer={<Button disabled={!lecturerId} loading={addMgr.isPending} onClick={() => addMgr.mutate()}>Assign</Button>}>
         <Select label="Lecturer / staff" options={lecturers.options} placeholder="Select your lecturer / staff" value={lecturerId} onChange={(ev2) => setLecturerId(ev2.target.value)} />
       </Modal>

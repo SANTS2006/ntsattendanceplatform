@@ -132,7 +132,7 @@ type Props<T> = {
   queryKey: string;
   columns: Column<T>[];
   fields: FieldDef[];
-  managePermission: string;
+  managePermission: string | string[];
   /** Convert a row into form defaults. */
   toForm?: (row: T) => Record<string, unknown>;
   /** Convert form values into the API payload. */
@@ -160,7 +160,7 @@ export function ResourceManager<T extends { id: string }>(p: Props<T>) {
   const [editing, setEditing] = useState<T | 'new' | null>(null);
   const [mode, setMode] = useState<'form' | 'upload'>('form');
   const [deleting, setDeleting] = useState<T | null>(null);
-  const canManage = can(p.managePermission);
+  const canManage = (Array.isArray(p.managePermission) ? p.managePermission : [p.managePermission]).some(can);
   const form = useForm<Record<string, unknown>>({ mode: 'onTouched' });
   const noun = lower(p.title);
   const importKey = p.importResource === false ? null : (p.importResource ?? p.url.replace(/^\//, ''));

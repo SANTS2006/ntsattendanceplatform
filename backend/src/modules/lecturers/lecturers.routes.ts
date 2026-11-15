@@ -1,3 +1,4 @@
+import { forbidden } from '../../lib/errors.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { registerCrud } from '../../lib/crud.js';
@@ -57,6 +58,17 @@ registerCrud(lecturersRouter, {
   searchFields: ['firstName', 'lastName', 'email', 'staffNumber'],
   orderBy: { lastName: 'asc' },
   softDelete: true,
+  // Department administrators see and manage only their department's lecturers.
+  scopeWhere: (ctx) => {
+    const s = ctx.scope('lecturers.read') ?? ctx.scope('lecturers.manage');
+    return Array.isArray(s) ? { departmentId: { in: s } } : undefined;
+  },
+  guardWrite: (ctx, data, existing) => {
+    const s = ctx.scope('lecturers.manage');
+    if (s === 'all' || s === null) return;
+    const dept = (data.departmentId ?? existing?.departmentId) as string | null | undefined;
+    if (!dept || !s.includes(dept)) throw forbidden('This lecturer is outside your department', 'OUT_OF_SCOPE');
+  },
 });
 
 r(

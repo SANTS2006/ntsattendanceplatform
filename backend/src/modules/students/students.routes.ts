@@ -91,6 +91,16 @@ r(
 
 r(
   {
+    method: 'post', path: '/students/:id/status', summary: 'Change a student status (reactivate, deactivate, graduate, suspend)', tags: T, access: 'tenant',
+    permission: ['students.update', 'students.delete'], params: uuidParam,
+    body: z.object({ status: z.enum(['ACTIVE', 'INACTIVE', 'GRADUATED', 'SUSPENDED']), reason: z.string().trim().max(500).optional() }),
+  },
+  async (req, res) =>
+    ok(res, await svc.changeStatus(tenantCtx(req), req.valid.params.id, req.valid.body.status, req.valid.body.reason || undefined, req), { message: 'Status updated' }),
+);
+
+r(
+  {
     method: 'delete', path: '/students/:id', summary: 'Deactivate (default) or permanently delete a student', tags: T, access: 'tenant',
     permission: 'students.delete', params: uuidParam, query: z.object({ permanent: z.enum(['true', 'false']).optional() }),
   },

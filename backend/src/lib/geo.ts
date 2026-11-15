@@ -31,6 +31,11 @@ export type LocationResult =
  * device-reported accuracy; distance and pass/fail are always computed here.
  * Browser geolocation is NOT proof of presence — `flags` record heuristics for review.
  */
+/** Attendance geofence radius limits (metres). Older sessions/settings outside the range are clamped. */
+export const GEOFENCE_MIN_M = 14;
+export const GEOFENCE_MAX_M = 20;
+export const clampRadius = (m: number) => Math.min(GEOFENCE_MAX_M, Math.max(GEOFENCE_MIN_M, Math.round(m)));
+
 export function checkLocation(policy: LocationPolicy, input: LocationCheckInput): LocationResult {
   const flags: string[] = [];
   const has = input.latitude != null && input.longitude != null;
@@ -51,7 +56,7 @@ export function checkLocation(policy: LocationPolicy, input: LocationCheckInput)
   if (policy.required && accuracy > policy.minAccuracyM) {
     return { ok: false, code: 'GPS_ACCURACY_INSUFFICIENT', distanceM: distance, accuracyM: accuracy, flags };
   }
-  if (distance > policy.radiusM) {
+  if (distance > clampRadius(policy.radiusM)) {
     if (policy.required) return { ok: false, code: 'OUTSIDE_GEOFENCE', distanceM: distance, accuracyM: accuracy, flags };
     return { ok: true, verified: false, distanceM: distance, accuracyM: accuracy, flags };
   }

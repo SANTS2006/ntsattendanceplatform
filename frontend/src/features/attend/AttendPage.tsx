@@ -9,6 +9,7 @@ import { Button } from '@/components/ui';
 import { Logo } from '@/components/Logo';
 import { ThemeToggle } from '@/theme/ThemeProvider';
 import { SelfieCapture } from './SelfieCapture';
+import { locationPermission } from '@/lib/geo';
 import { attendApi, formatSatisfied, getPosition, type Coords, type SuccessResult, type ValidateResult, type VerifiedStudent } from './api';
 
 type Fatal = { code: string; title: string; message: string; icon: ReactNode; retry?: boolean };
@@ -202,12 +203,19 @@ export function AttendPage() {
   const totalSteps = 1 + (needLocation ? 1 : 0) + (needSelfie ? 1 : 0) + 1;
   const locationDone = !needLocation || locState === 'ok';
 
+  const [locAccuracy, setLocAccuracy] = useState<number | null>(null);
+  const [permission, setPermission] = useState<'granted' | 'prompt' | 'denied' | 'unknown'>('unknown');
+  useEffect(() => {
+    void locationPermission().then(setPermission);
+  }, []);
+
   async function locate() {
     if (!attempt) return;
     setLocError(null);
+    setLocAccuracy(null);
     setLocState('locating');
     try {
-      const c = await getPosition();
+      const c = await getPosition(setLocAccuracy);
       setCoords(c);
       setLocState('checking');
       await attendApi.verifyLocation(token, attempt, c);
@@ -349,14 +357,27 @@ export function AttendPage() {
             </p>
           ) : (
             <>
-              <p className="mb-3 text-sm text-slate-600">We need your location to confirm you are in the class or event venue. Your location is only used for this check.</p>
+              <p className="mb-3 text-sm text-slate-600">
+                We need your location to confirm you are in the class or event venue{info.session.radiusM ? <> — within <strong>{info.session.radiusM} m</strong> of where your lecturer started this session</> : null}. Your location is only used for this check.
+              </p>
+              {permission === 'prompt' && !locError && (
+                <p className="mb-3 rounded-lg bg-brand-50 p-3 text-sm text-brand-800">Your browser will ask to use your location — tap <strong>Allow</strong>.</p>
+              )}
+              {permission === 'denied' && !locError && (
+                <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">Location is blocked for this site. Allow it in your browser’s site settings (the icon next to the address), then tap the button below.</p>
+              )}
+              {locState === 'locating' && (
+                <p className="mb-3 text-sm text-slate-600" aria-live="polite">
+                  {locAccuracy == null ? 'Finding your position…' : `Improving accuracy… ±${locAccuracy} m`} For the best result, stand still near a window or outdoors.
+                </p>
+              )}
               {locError && (
                 <div className="mb-3 flex gap-2 rounded-lg bg-rose-50 p-3 text-sm text-rose-700" role="alert">
                   <MapPinOff className="mt-0.5 h-4 w-4 shrink-0" /> {locError.message}
                 </div>
               )}
               <Button size="lg" className="w-full" onClick={locate} loading={locState === 'locating' || locState === 'checking'} icon={<MapPin className="h-5 w-5" />}>
-                {locState === 'locating' ? 'Getting location…' : locState === 'checking' ? 'Checking…' : locError ? 'Try again' : 'Share my location'}
+                {locState === 'locating' ? 'Getting a precise location…' : locState === 'checking' ? 'Checking…' : locError ? 'Try again' : 'Share my location'}
               </Button>
             </>
           )}

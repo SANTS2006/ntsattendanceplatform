@@ -65,7 +65,7 @@ const settingsBody = z
     studentIdAllowSpaces: z.boolean(),
     studentIdExample: z.string().trim().max(64).nullable(),
     locationRequired: z.boolean(),
-    defaultGeofenceRadiusM: z.number().int().min(5).max(50_000),
+    defaultGeofenceRadiusM: z.number().int().min(14, 'The radius must be at least 14 m').max(20, 'The radius must be at most 20 m'),
     minGpsAccuracyM: z.number().int().min(1).max(10_000),
     selfieRequired: z.boolean(),
     requireEnrollment: z.boolean(),

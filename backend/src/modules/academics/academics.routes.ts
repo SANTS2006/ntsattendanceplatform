@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { Router } from 'express';
 import { z } from 'zod';
 import { registerCrud } from '../../lib/crud.js';
@@ -103,10 +104,15 @@ const classBody = z.object({
   status: status.optional(),
 });
 
-const classGuard = async (ctx: TenantContext, data: Record<string, unknown>, existing?: { courseId?: string | null }) => {
+const classGuard = async (ctx: TenantContext, data: Record<string, unknown>, existing?: { courseId?: string | null; lecturers?: { lecturerId: string }[] }) => {
   const scope = ctx.scope('academics.manage');
   if (scope === 'all') return;
-  if (!scope) throw forbidden();
+  if (!scope) {
+    // Lecturers create classes (they become the assigned lecturer) and manage only classes assigned to them.
+    if (!ctx.has('classes.manage_assigned') || !ctx.lecturerId) throw forbidden();
+    if (existing && !existing.lecturers?.some((l) => l.lecturerId === ctx.lecturerId)) throw forbidden('You can only change classes you are assigned to', 'NOT_ASSIGNED');
+    return;
+  }
   const courseId = (data.courseId ?? existing?.courseId) as string | undefined;
   const course = courseId ? await ctx.db.course.findUnique({ where: { id: courseId }, select: { departmentId: true } }) : null;
   if (!course?.departmentId || !scope.includes(course.departmentId)) throw forbidden('This class is outside your department', 'OUT_OF_SCOPE');
@@ -121,8 +127,14 @@ const classInclude = {
 
 registerCrud(academicsRouter, {
   path: '/classes', model: 'class', entity: 'Class', tag: TAG,
-  readPermission: ['academics.read', 'attendance.sessions.create'], managePermission: 'academics.manage',
+  readPermission: ['academics.read', 'attendance.sessions.create'], managePermission: ['academics.manage', 'classes.manage_assigned'],
   create: classBody,
+  afterCreate: async (ctx, row) => {
+    // A lecturer creating a class is assigned to it as its primary lecturer.
+    if (ctx.scope('academics.manage') !== 'all' && ctx.lecturerId) {
+      await ctx.db.classLecturer.create({ data: { organizationId: ctx.organizationId, classId: row.id, lecturerId: ctx.lecturerId, role: 'PRIMARY' } });
+    }
+  },
   filters: { courseId: z.string().uuid().optional(), semesterId: z.string().uuid().optional(), status: status.optional() },
   include: classInclude, searchFields: ['name', 'code'], orderBy: { code: 'asc' }, softDelete: true,
   scopeWhere: (ctx) => classScopeWhere(ctx), guardWrite: classGuard,
@@ -220,34 +232,94 @@ r(
 
 r(
   {
-    method: 'post', path: '/enrollments', summary: 'Enroll students in a class (bulk, idempotent)', tags: T, access: 'tenant', permission: 'students.update', status: 201,
+    method: 'post', path: '/enrollments', summary: 'Enroll students in a class (bulk, idempotent)', tags: T, access: 'tenant', permission: ['students.update', 'classes.manage_assigned'], status: 201,
     body: z.object({ classId: z.string().uuid(), studentIds: z.array(z.string().uuid()).min(1).max(1000) }),
   },
   async (req, res) => {
     const ctx = tenantCtx(req);
     const cls = await loadVisibleClass(ctx, req.valid.body.classId);
     const ids = [...new Set<string>(req.valid.body.studentIds)];
-    const students = await ctx.db.student.findMany({ where: { id: { in: ids } }, select: { id: true } });
+    const students = await ctx.db.student.findMany({ where: { AND: [{ id: { in: ids } }, await enrollableStudentWhere(ctx, cls.course?.departmentId ?? null)] }, select: { id: true } });
     if (students.length !== ids.length) throw notFound('One or more students');
     const result = await ctx.db.enrollment.createMany({
       data: ids.map((studentId) => ({ organizationId: ctx.organizationId, classId: cls.id, studentId })),
       skipDuplicates: true,
     });
     await ctx.db.enrollment.updateMany({ where: { classId: cls.id, studentId: { in: ids }, status: 'DROPPED' }, data: { status: 'ACTIVE' } });
-    await audit({ action: 'enrollment.created', targetType: 'Class', targetId: cls.id, metadata: { count: ids.length }, req });
+    await audit({ action: 'enrollment.created', targetType: 'Class', targetId: cls.id, metadata: { count: ids.length, studentIds: ids.slice(0, 200) }, req });
     created(res, { enrolled: result.count, requested: ids.length });
   },
 );
 
 r(
-  { method: 'delete', path: '/enrollments/:id', summary: 'Drop an enrollment', tags: T, access: 'tenant', permission: 'students.update', params: uuidParam },
+  { method: 'delete', path: '/enrollments/:id', summary: 'Drop an enrollment', tags: T, access: 'tenant', permission: ['students.update', 'classes.manage_assigned'], params: uuidParam },
   async (req, res) => {
     const ctx = tenantCtx(req);
     const e = await ctx.db.enrollment.findUnique({ where: { id: req.valid.params.id } });
     if (!e) throw notFound('Enrollment');
     await loadVisibleClass(ctx, e.classId);
     await ctx.db.enrollment.update({ where: { id: e.id }, data: { status: 'DROPPED' } });
-    await audit({ action: 'enrollment.dropped', targetType: 'Enrollment', targetId: e.id, req });
+    await audit({ action: 'enrollment.dropped', targetType: 'Class', targetId: e.classId, metadata: { studentId: e.studentId, enrollmentId: e.id }, req });
     ok(res, null, { message: 'Enrollment dropped' });
   },
 );
+
+/**
+ * Students a caller may enroll: active students inside the caller's student scope. Callers without
+ * students.read (lecturers) are limited to the class's department when it has one.
+ */
+export async function enrollableStudentWhere(ctx: TenantContext, departmentId: string | null): Promise<Prisma.StudentWhereInput> {
+  const s = ctx.scope('students.update') ?? ctx.scope('students.read');
+  if (s === 'all') return { status: 'ACTIVE' };
+  if (Array.isArray(s)) return { status: 'ACTIVE', departmentId: { in: s } };
+  return { status: 'ACTIVE', ...(departmentId ? { departmentId } : {}) };
+}
+
+const candidateQuery = paginationQuery.extend({
+  search: z.string().trim().max(100).optional(),
+  programId: z.string().uuid().optional(),
+  levelId: z.string().uuid().optional(),
+  departmentId: z.string().uuid().optional(),
+});
+const candidateSelect = {
+  id: true, studentNumber: true, fullName: true, email: true,
+  program: { select: { id: true, name: true } }, level: { select: { id: true, name: true } }, department: { select: { id: true, name: true } },
+} as const;
+
+/** Students who can be added (not yet actively enrolled), filtered by program/level/department/search. */
+export async function candidateStudents(
+  ctx: TenantContext, base: Prisma.StudentWhereInput, exclude: Prisma.StudentWhereInput, q: z.infer<typeof candidateQuery>,
+) {
+  const where: Prisma.StudentWhereInput = {
+    AND: [
+      base,
+      { NOT: exclude },
+      q.programId ? { programId: q.programId } : {},
+      q.levelId ? { levelId: q.levelId } : {},
+      q.departmentId ? { departmentId: q.departmentId } : {},
+      q.search ? { OR: [{ fullName: { contains: q.search, mode: 'insensitive' } }, { studentNumber: { contains: q.search, mode: 'insensitive' } }] } : {},
+    ],
+  };
+  const [items, total] = await Promise.all([
+    ctx.db.student.findMany({ where, select: candidateSelect, orderBy: { fullName: 'asc' }, skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
+    ctx.db.student.count({ where }),
+  ]);
+  return { items, total };
+}
+
+r(
+  {
+    method: 'get', path: '/classes/:id/candidates', summary: 'Students who can be enrolled in a class (filter by program, level, department)', tags: T,
+    access: 'tenant', permission: ['students.update', 'classes.manage_assigned'], params: uuidParam, query: candidateQuery,
+  },
+  async (req, res) => {
+    const ctx = tenantCtx(req);
+    const cls = await loadVisibleClass(ctx, req.valid.params.id);
+    const q = req.valid.query;
+    const base = await enrollableStudentWhere(ctx, cls.course?.departmentId ?? null);
+    const out = await candidateStudents(ctx, base, { enrollments: { some: { classId: cls.id, status: 'ACTIVE' } } }, q);
+    ok(res, out.items, { meta: pageMeta(q, out.total) });
+  },
+);
+
+export { candidateQuery };

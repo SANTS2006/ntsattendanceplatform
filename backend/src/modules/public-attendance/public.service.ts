@@ -6,7 +6,7 @@ import { emitToSession } from '../../infra/realtime.js';
 import { imageStorage, tenantKey } from '../../infra/storage.js';
 import { hmac, randomToken, referenceNumber, safeEqual, sha256 } from '../../lib/crypto.js';
 import { AppError, conflict, forbidden, gone, notFound, tooMany, unprocessable } from '../../lib/errors.js';
-import { checkLocation, type LocationFailureCode } from '../../lib/geo.js';
+import { checkLocation, clampRadius, type LocationFailureCode } from '../../lib/geo.js';
 import { signAttemptToken, verifyAttemptToken, type AttemptClaims } from '../../lib/jwt.js';
 import { logger } from '../../lib/logger.js';
 import { publicStudentIdFormat, validateStudentId } from '../../lib/studentId.js';
@@ -154,7 +154,7 @@ export async function validate(raw: string, req: Request) {
       serverTime: new Date(),
       locationRequired: session.locationRequired,
       selfieRequired: session.selfieRequired,
-      radiusM: session.radiusM,
+      radiusM: clampRadius(session.radiusM),
       minAccuracyM: session.minAccuracyM,
     },
     studentIdFormat: publicStudentIdFormat(settings),
@@ -254,7 +254,7 @@ export async function verifyLocation(raw: string, attempt: string | undefined, l
     required: session.locationRequired,
     distanceM: result.distanceM != null ? Math.round(result.distanceM) : null,
     accuracyM: result.accuracyM != null ? Math.round(result.accuracyM) : null,
-    radiusM: session.radiusM,
+    radiusM: clampRadius(session.radiusM),
   };
 }
 

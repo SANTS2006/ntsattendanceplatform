@@ -92,7 +92,7 @@ export function ThemeSegmented() {
           onClick={() => setChoice(o.v)}
           className={clsx(
             'flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition',
-            choice === o.v ? 'bg-white text-navy-900 shadow-sm' : 'text-slate-500 hover:text-navy-800',
+            choice === o.v ? 'bg-white text-navy-900 shadow-sm' : 'text-slate-500 hover:text-slate-950',
           )}
         >
           {o.icon} {o.label}

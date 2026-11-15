@@ -98,6 +98,10 @@ export function eventScopeWhere(ctx: TenantContext): Prisma.EventWhereInput | un
   if (ctx.has('events.manage') || ctx.scope('attendance.read_all') === 'all' || ctx.scope('attendance.sessions.manage_all') === 'all') {
     return undefined;
   }
-  if (ctx.lecturerId) return { managers: { some: { lecturerId: ctx.lecturerId } } };
-  return ctx.has('events.read') ? undefined : { id: { in: [] } };
+  const or: Prisma.EventWhereInput[] = [];
+  const dept = ctx.scope('events.read') ?? ctx.scope('attendance.read_all');
+  if (Array.isArray(dept)) or.push({ managers: { some: { lecturer: { departmentId: { in: dept } } } } });
+  if (ctx.lecturerId) or.push({ managers: { some: { lecturerId: ctx.lecturerId } } });
+  if (or.length) return { OR: or };
+  return ctx.scope('events.read') === 'all' ? undefined : { id: { in: [] } };
 }

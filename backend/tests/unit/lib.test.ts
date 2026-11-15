@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkLocation, haversineMeters } from '../../src/lib/geo.js';
+import { checkLocation, haversineMeters, clampRadius } from '../../src/lib/geo.js';
 import { normalizeStudentId, publicStudentIdFormat, validateStudentId, type StudentIdConfig } from '../../src/lib/studentId.js';
 import { generateTotpSecret, totp, verifyTotp } from '../../src/lib/totp.js';
 import { decrypt, encrypt, referenceNumber } from '../../src/lib/crypto.js';
@@ -18,10 +18,20 @@ describe('haversine / geofence', () => {
     expect(haversineMeters(0, 0, 1, 0)).toBeLessThan(111_400);
     expect(haversineMeters(8.4844, -13.2344, 8.4844, -13.2344)).toBe(0);
   });
-  const policy = { required: true, latitude: 8.4844, longitude: -13.2344, radiusM: 100, minAccuracyM: 50 };
-  it('accepts a location inside the radius', () => {
-    const r = checkLocation(policy, { latitude: 8.4848, longitude: -13.2344, accuracy: 10 });
+  const policy = { required: true, latitude: 8.4844, longitude: -13.2344, radiusM: 20, minAccuracyM: 50 };
+  it('accepts a location inside the radius (~11 m)', () => {
+    const r = checkLocation(policy, { latitude: 8.4845, longitude: -13.2344, accuracy: 10 });
     expect(r.ok && r.verified).toBe(true);
+  });
+  it('limits the geofence to 14-20 m even when a session was configured larger', () => {
+    // ~44 m away: rejected although the (legacy) session radius says 100 m.
+    const r = checkLocation({ ...policy, radiusM: 100 }, { latitude: 8.4848, longitude: -13.2344, accuracy: 10 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('OUTSIDE_GEOFENCE');
+    // ~13 m away: accepted with a (legacy) 5 m radius because the minimum is 14 m.
+    const near = checkLocation({ ...policy, radiusM: 5 }, { latitude: 8.48452, longitude: -13.2344, accuracy: 10 });
+    expect(near.ok && near.verified).toBe(true);
+    expect([clampRadius(5), clampRadius(17), clampRadius(100)]).toEqual([14, 17, 20]);
   });
   it('rejects outside radius', () => {
     const r = checkLocation(policy, { latitude: 8.49, longitude: -13.2344, accuracy: 10 });

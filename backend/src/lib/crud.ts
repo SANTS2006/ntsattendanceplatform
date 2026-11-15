@@ -14,7 +14,7 @@ export type CrudConfig = {
   entity: string; // e.g. 'Department'
   tag: string;
   readPermission: PermissionKey | PermissionKey[];
-  managePermission: PermissionKey;
+  managePermission: PermissionKey | PermissionKey[];
   create: z.AnyZodObject;
   update?: z.AnyZodObject;
   searchFields?: string[];
@@ -26,6 +26,8 @@ export type CrudConfig = {
   /** Validate create/update payloads against the caller's scope. */
   guardWrite?: (ctx: TenantContext, data: Record<string, unknown>, existing?: any) => Promise<void> | void;
   softDelete?: boolean; // set status ARCHIVED instead of deleting
+  /** Runs after a successful create (e.g. assign the creating lecturer). */
+  afterCreate?: (ctx: TenantContext, row: any) => Promise<void> | void;
 };
 
 /**
@@ -74,7 +76,8 @@ export function registerCrud(router: Router, cfg: CrudConfig) {
       const ctx = tenantCtx(req);
       await cfg.guardWrite?.(ctx, req.valid.body);
       const row = await delegate(ctx).create({ data: { ...req.valid.body, organizationId: ctx.organizationId } });
-      await audit({ action: `${cfg.model}.created`, targetType: cfg.entity, targetId: row.id, req });
+      await cfg.afterCreate?.(ctx, row);
+      await audit({ action: `${cfg.model}.created`, targetType: cfg.entity, targetId: row.id, metadata: { name: row.name ?? row.title ?? row.code ?? undefined }, req });
       created(res, row);
     },
   );
@@ -89,7 +92,11 @@ export function registerCrud(router: Router, cfg: CrudConfig) {
       const existing = await findScoped(ctx, req.valid.params.id);
       await cfg.guardWrite?.(ctx, req.valid.body, existing);
       const row = await delegate(ctx).update({ where: { id: existing.id }, data: req.valid.body });
-      await audit({ action: `${cfg.model}.updated`, targetType: cfg.entity, targetId: row.id, metadata: { fields: Object.keys(req.valid.body) }, req });
+      const statusChange = 'status' in req.valid.body && existing.status !== row.status ? { statusFrom: existing.status, statusTo: row.status } : {};
+      await audit({
+        action: Object.keys(statusChange).length ? `${cfg.model}.status_changed` : `${cfg.model}.updated`,
+        targetType: cfg.entity, targetId: row.id, metadata: { fields: Object.keys(req.valid.body), ...statusChange }, req,
+      });
       ok(res, row);
     },
   );
@@ -113,7 +120,10 @@ export function registerCrud(router: Router, cfg: CrudConfig) {
           throw e;
         }
       }
-      await audit({ action: `${cfg.model}.${cfg.softDelete ? 'archived' : 'deleted'}`, targetType: cfg.entity, targetId: existing.id, req });
+      await audit({
+        action: `${cfg.model}.${cfg.softDelete ? 'archived' : 'deleted'}`, targetType: cfg.entity, targetId: existing.id,
+        metadata: { name: existing.name ?? existing.title ?? existing.code ?? undefined, ...(cfg.softDelete ? { statusFrom: existing.status, statusTo: 'ARCHIVED' } : {}) }, req,
+      });
       ok(res, null, { message: cfg.softDelete ? 'Archived' : 'Deleted' });
     },
   );

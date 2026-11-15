@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
 import {
-  BarChart3, BookOpen, Headset, Lightbulb, Building2, CalendarDays, ChevronDown, ClipboardCheck, GraduationCap, LayoutDashboard, Menu, QrCode, Settings,
+  BarChart3, BookOpen, Headset, History, Lightbulb, Building2, CalendarDays, ChevronDown, ClipboardCheck, GraduationCap, LayoutDashboard, Menu, QrCode, Settings,
   Shield, UserCog, Users, X,
 } from 'lucide-react';
 import { errorMessage } from '@/api/client';
@@ -41,7 +41,10 @@ const NAV: NavGroup[] = [
   },
   {
     title: 'Administration',
-    items: [{ to: '/app/settings', label: 'Settings', icon: <Settings />, any: ['organization.manage', 'settings.manage', 'members.read', 'roles.manage', 'audit.read'] }],
+    items: [
+      { to: '/app/history', label: 'History', icon: <History />, any: ['audit.read'] },
+      { to: '/app/settings', label: 'Settings', icon: <Settings />, any: ['organization.manage', 'settings.manage', 'members.read', 'roles.manage', 'audit.read'] },
+    ],
   },
   {
     title: 'Help & support',

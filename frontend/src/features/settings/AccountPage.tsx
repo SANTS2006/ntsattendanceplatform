@@ -41,12 +41,16 @@ function AvatarCard() {
   const role = useRoleLabel(me?.activeOrganizationId ? 'org' : 'platform');
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<'upload' | 'remove' | null>(null);
+  /** Local preview of the chosen image while it uploads. */
+  const [preview, setPreview] = useState<string | null>(null);
 
   const upload = async (file: File) => {
     if (!/^image\/(jpeg|png|webp)$/.test(file.type)) return toast.error('Choose a JPEG, PNG or WebP image');
     if (file.size > MAX_AVATAR) return toast.error('The image must be 5 MB or smaller');
     const fd = new FormData();
     fd.append('file', file);
+    const url = URL.createObjectURL(file);
+    setPreview(url);
     setBusy('upload');
     try {
       await http.post<ApiSuccess<unknown>>('/auth/me/avatar', fd);
@@ -56,6 +60,8 @@ function AvatarCard() {
       toast.error(errorMessage(e));
     } finally {
       setBusy(null);
+      setPreview(null);
+      URL.revokeObjectURL(url);
       if (fileRef.current) fileRef.current.value = '';
     }
   };
@@ -65,7 +71,17 @@ function AvatarCard() {
       <div className="bg-hero h-20" />
       <div className="-mt-12 flex flex-col items-center px-6 pb-6 text-center">
         <div className="relative">
-          <Avatar size="lg" className="!h-24 !w-24 !text-2xl ring-4 !ring-white" />
+          {preview ? (
+            <img src={preview} alt="" className="h-24 w-24 rounded-full object-cover ring-4 ring-white" />
+          ) : (
+            <Avatar size="lg" className="!h-24 !w-24 !text-2xl ring-4 !ring-white" />
+          )}
+          {busy === 'upload' && (
+            <span className="absolute inset-0 flex flex-col items-center justify-center rounded-full bg-navy-950/55 text-white backdrop-blur-[1px]" role="status" aria-live="polite">
+              <span className="h-9 w-9 animate-spin rounded-full border-[3px] border-white/30 border-t-white" />
+              <span className="mt-1 text-[10px] font-bold tracking-wider uppercase">Uploading</span>
+            </span>
+          )}
           <button
             onClick={() => fileRef.current?.click()}
             disabled={!!busy}

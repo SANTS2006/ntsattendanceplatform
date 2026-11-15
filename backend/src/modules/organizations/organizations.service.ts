@@ -1,3 +1,4 @@
+import { classScopeWhere, eventScopeWhere, sessionScopeWhere } from '../attendance/access.js';
 import type { Request } from 'express';
 import type { OrganizationType, Prisma } from '@prisma/client';
 import { SYSTEM_ROLES } from '../../config/permissions.js';
@@ -25,6 +26,7 @@ export async function ensurePermissionCatalogue() {
     return e && (e.group !== p.group || e.description !== p.description);
   });
   if (missing.length) await prisma.permission.createMany({ data: missing, skipDuplicates: true });
+  await syncSystemRolePermissions();
   if (changed.length) await prisma.$transaction(changed.map((p) => prisma.permission.update({ where: { key: p.key }, data: { group: p.group, description: p.description } })));
 }
 
@@ -142,14 +144,24 @@ export async function updateSettings(ctx: TenantContext, data: Prisma.Organizati
 export async function overview(ctx: TenantContext) {
   const db = ctx.db;
   const since = new Date(Date.now() - 30 * 86_400_000);
+  // Every figure is limited to what the caller's active role may see (department / assignment).
+  const classScope = classScopeWhere(ctx);
+  const eventScope = eventScopeWhere(ctx);
+  const studentScope = ctx.scope('students.read');
+  const studentWhere: Prisma.StudentWhereInput =
+    studentScope === 'all' ? {} : Array.isArray(studentScope) ? { departmentId: { in: studentScope } }
+      : { OR: [{ enrollments: { some: { status: 'ACTIVE', class: classScope ?? {} } } }, { eventEntries: { some: { event: eventScope ?? {} } } }] };
+  const lecturerScope = ctx.scope('lecturers.read');
+  const canSessions = ['attendance.read_all', 'attendance.read_assigned', 'attendance.sessions.create', 'attendance.sessions.manage_all'].some((p) => ctx.has(p as never));
+  const sessionWhere = canSessions ? sessionScopeWhere(ctx, 'read') : { id: { in: [] as string[] } };
   const [students, lecturers, classes, events, activeSessions, records30, members] = await Promise.all([
-    db.student.count({ where: { status: 'ACTIVE' } }),
-    db.lecturer.count({ where: { status: 'ACTIVE' } }),
-    db.class.count({ where: { status: 'ACTIVE' } }),
-    db.event.count({ where: { status: 'ACTIVE' } }),
-    db.attendanceSession.count({ where: { status: 'ACTIVE', expiresAt: { gt: new Date() } } }),
-    db.attendanceRecord.count({ where: { submittedAt: { gte: since }, status: { not: 'INVALIDATED' } } }),
-    db.organizationMembership.count({ where: { status: 'ACTIVE' } }),
+    db.student.count({ where: { AND: [{ status: 'ACTIVE' }, studentWhere] } }),
+    lecturerScope === null ? Promise.resolve(0) : db.lecturer.count({ where: { status: 'ACTIVE', ...(Array.isArray(lecturerScope) ? { departmentId: { in: lecturerScope } } : {}) } }),
+    db.class.count({ where: { AND: [{ status: 'ACTIVE' }, classScope ?? {}] } }),
+    db.event.count({ where: { AND: [{ status: 'ACTIVE' }, eventScope ?? {}] } }),
+    db.attendanceSession.count({ where: { AND: [{ status: 'ACTIVE', expiresAt: { gt: new Date() } }, sessionWhere] } }),
+    db.attendanceRecord.count({ where: { AND: [{ submittedAt: { gte: since }, status: { not: 'INVALIDATED' } }, canSessions ? { session: sessionWhere } : { id: { in: [] } }] } }),
+    ctx.has('members.read') ? db.organizationMembership.count({ where: { status: 'ACTIVE' } }) : Promise.resolve(0),
   ]);
   return { students, lecturers, classes, events, activeSessions, attendanceLast30Days: records30, members };
 }
@@ -167,4 +179,21 @@ export async function auditLogs(ctx: TenantContext, q: { page: number; pageSize:
     items: items.map((i) => ({ ...i, ip: undefined, actor: i.actorUserId ? byId.get(i.actorUserId) ?? null : null })),
     total,
   };
+}
+
+/** Adds permissions introduced in SYSTEM_ROLES to existing organizations' built-in roles (never removes). */
+export async function syncSystemRolePermissions() {
+  const perms = new Map((await prisma.permission.findMany({ select: { id: true, key: true } })).map((p) => [p.key, p.id]));
+  const roles = await prisma.role.findMany({ where: { isSystem: true }, select: { id: true, key: true, permissions: { select: { permissionId: true } } } });
+  const rows: { roleId: string; permissionId: string }[] = [];
+  for (const role of roles) {
+    const def = SYSTEM_ROLES[role.key];
+    if (!def) continue;
+    const have = new Set(role.permissions.map((p) => p.permissionId));
+    for (const key of def.permissions) {
+      const id = perms.get(key);
+      if (id && !have.has(id)) rows.push({ roleId: role.id, permissionId: id });
+    }
+  }
+  if (rows.length) await prisma.rolePermission.createMany({ data: rows, skipDuplicates: true });
 }

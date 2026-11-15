@@ -8,8 +8,9 @@ import { useAuth } from '@/auth/AuthProvider';
 import { ResourceManager, statusBadge } from '@/components/ResourceManager';
 import { Badge, Button, Card, DataTable, EmptyState, ErrorState, Modal, PageHeader, Pagination, SearchInput, Select, Spinner, Tabs, BackButton } from '@/components/ui';
 import { usePaged } from '@/hooks/usePaged';
+import { RecordHistory } from '@/components/History';
 import { useOptions } from '@/hooks/useOptions';
-import type { ClassItem, Ref, Student } from '@/types';
+import type { ClassItem, Ref } from '@/types';
 import { fmtDate } from '@/utils/format';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -86,7 +87,7 @@ export function ClassesPage() {
     <div>
       <PageHeader title="Classes" description={can('academics.manage') ? 'Teaching groups for courses. Assign lecturers and enroll students.' : 'Classes you are assigned to.'} />
       <ResourceManager<ClassItem>
-        title="Class" url="/classes" queryKey="classes" managePermission="academics.manage" deleteLabel="Archive"
+        title="Class" url="/classes" queryKey="classes" managePermission={["academics.manage", "classes.manage_assigned"]} importResource={can('academics.manage') ? undefined : false} deleteLabel="Archive"
         onRowClick={(r) => nav(`/app/classes/${r.id}`)}
         columns={[
           { key: 'code', header: 'Code', render: (r) => <span className="font-medium">{r.code}</span> },
@@ -174,7 +175,7 @@ export function ClassDetailPage() {
           </dl>
         </Card>
         <Card title={<span className="inline-flex items-center gap-2"><Users className="h-4 w-4" /> Enrolled students</span>} className="lg:col-span-2" padded={false}
-          actions={can('students.update') && <Button size="sm" icon={<UserPlus className="h-4 w-4" />} onClick={() => setEnrollOpen(true)}>Enroll students</Button>}>
+          actions={(can('students.update') || can('classes.manage_assigned')) && <Button size="sm" icon={<UserPlus className="h-4 w-4" />} onClick={() => setEnrollOpen(true)}>Enroll students</Button>}>
           <div className="border-b border-slate-100 p-3"><SearchInput value={roster.search} onChange={roster.setSearch} placeholder="Search roster…" /></div>
           <DataTable
             rows={roster.rows}
@@ -186,7 +187,7 @@ export function ClassDetailPage() {
               { key: 'n', header: 'Name', render: (e) => e.student.fullName },
               { key: 'p', header: 'Program', render: (e) => e.student.program?.name ?? '—' },
               { key: 's', header: 'Status', render: (e) => <Badge>{e.student.status}</Badge> },
-              ...(can('students.update') ? [{ key: 'x', header: '', render: (e: Enrollment) => <Button size="sm" variant="ghost" aria-label="Remove from class" icon={<Trash2 className="h-4 w-4 text-rose-500" />} onClick={() => drop.mutate(e.id)} /> }] : []),
+              ...(can('students.update') || can('classes.manage_assigned') ? [{ key: 'x', header: '', render: (e: Enrollment) => <Button size="sm" variant="ghost" aria-label="Remove from class" icon={<Trash2 className="h-4 w-4 text-rose-500" />} onClick={() => drop.mutate(e.id)} /> }] : []),
             ]}
           />
           {roster.meta && <Pagination page={roster.meta.page} totalPages={roster.meta.totalPages} total={roster.meta.total} onPage={roster.setPage} />}
@@ -195,18 +196,31 @@ export function ClassDetailPage() {
       <Modal open={assignOpen} onClose={() => setAssignOpen(false)} title="Assign lecturer" size="sm" footer={<><Button variant="secondary" onClick={() => setAssignOpen(false)}>Cancel</Button><Button disabled={!lecturerId} loading={assign.isPending} onClick={() => assign.mutate()}>Assign</Button></>}>
         <Select label="Lecturer" options={lecturers.options} placeholder="Select your lecturer" value={lecturerId} onChange={(e) => setLecturerId(e.target.value)} />
       </Modal>
-      <EnrollModal open={enrollOpen} onClose={() => setEnrollOpen(false)} url="/enrollments" body={(ids) => ({ classId: id, studentIds: ids })} onDone={() => qc.invalidateQueries({ queryKey: [`roster-${id}`] })} />
+      <Card title="History" className="mt-6"><RecordHistory targetType="Class" targetId={id} /></Card>
+      <EnrollModal open={enrollOpen} onClose={() => setEnrollOpen(false)} url="/enrollments" candidatesUrl={`/classes/${id}/candidates`} body={(ids) => ({ classId: id, studentIds: ids })} onDone={() => qc.invalidateQueries({ queryKey: [`roster-${id}`] })} />
     </div>
   );
 }
 
 /** Pick students (search + multi-select) and enroll/register them. Shared by classes and events. */
-export function EnrollModal({ open, onClose, url, body, onDone, title = 'Enroll students' }: { open: boolean; onClose: () => void; url: string; body: (ids: string[]) => unknown; onDone: () => void; title?: string }) {
+type Candidate = { id: string; studentNumber: string; fullName: string; email: string | null; program: Ref | null; level: Ref | null; department: Ref | null };
+
+/** Pick students to add — filtered by program, level and search; only students not yet added are listed. */
+export function EnrollModal({ open, onClose, url, candidatesUrl, body, onDone, title = 'Enroll students' }: {
+  open: boolean; onClose: () => void; url: string; candidatesUrl: string; body: (ids: string[]) => unknown; onDone: () => void; title?: string;
+}) {
   const [search, setSearch] = useState('');
   const [programId, setProgramId] = useState('');
+  const [levelId, setLevelId] = useState('');
+  const [page, setPage] = useState(1);
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const programs = useOptions<Ref>('/programs', (p) => p.name);
-  const q = useQuery({ queryKey: ['enroll-pick', search, programId], queryFn: () => getPaged<Student>('/students', { search, programId, status: 'ACTIVE', pageSize: 50 }), enabled: open });
+  const programs = useOptions<Ref>('/programs', (p) => p.name, {}, open);
+  const levels = useOptions<Ref>('/levels', (l) => l.name, {}, open);
+  const q = useQuery({
+    queryKey: ['enroll-candidates', candidatesUrl, search, programId, levelId, page],
+    queryFn: () => getPaged<Candidate>(candidatesUrl, { search: search || undefined, programId: programId || undefined, levelId: levelId || undefined, page, pageSize: 50 }),
+    enabled: open,
+  });
   const save = useMutation({
     mutationFn: () => post(url, body([...picked])),
     onSuccess: () => { toast.success(`${picked.size} student(s) added`); setPicked(new Set()); onDone(); onClose(); },
@@ -214,28 +228,34 @@ export function EnrollModal({ open, onClose, url, body, onDone, title = 'Enroll 
   });
   const rows = q.data?.items ?? [];
   const toggle = (sid: string) => setPicked((p) => { const n = new Set(p); if (n.has(sid)) n.delete(sid); else n.add(sid); return n; });
+  const allShown = rows.length > 0 && rows.every((r) => picked.has(r.id));
+  const reset = (fn: () => void) => { fn(); setPage(1); };
   return (
-    <Modal open={open} onClose={onClose} title={title} size="lg" footer={<><span className="mr-auto self-center text-sm text-slate-500">{picked.size} selected</span><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!picked.size} loading={save.isPending} onClick={() => save.mutate()}>Add selected</Button></>}>
-      <div className="mb-3 flex flex-col gap-2 sm:flex-row">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search students…" />
-        <Select aria-label="Program" options={programs.options} placeholder="All programs" value={programId} onChange={(e) => setProgramId(e.target.value)} />
-        <Button variant="secondary" size="sm" onClick={() => setPicked(new Set([...picked, ...rows.map((r) => r.id)]))}>Select all shown</Button>
+    <Modal open={open} onClose={onClose} title={title} size="lg" footer={<><span className="mr-auto self-center text-sm font-semibold text-slate-600">{picked.size} selected</span><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!picked.size} loading={save.isPending} onClick={() => save.mutate()}>Add selected</Button></>}>
+      <div className="mb-3 grid gap-2 sm:grid-cols-3">
+        <div className="sm:col-span-3"><SearchInput value={search} onChange={(v) => reset(() => setSearch(v))} placeholder="Search by name or student ID…" /></div>
+        <Select aria-label="Program" options={programs.options} placeholder="All programs" value={programId} onChange={(e) => reset(() => setProgramId(e.target.value))} />
+        <Select aria-label="Level" options={levels.options} placeholder="All levels" value={levelId} onChange={(e) => reset(() => setLevelId(e.target.value))} />
+        <Button variant="secondary" disabled={!rows.length} onClick={() => setPicked((p) => { const n = new Set(p); for (const r of rows) { if (allShown) n.delete(r.id); else n.add(r.id); } return n; })}>
+          {allShown ? 'Clear shown' : `Select all shown (${rows.length})`}
+        </Button>
       </div>
       {q.isLoading ? <Spinner /> : (
-        <ul className="max-h-80 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
+        <ul className="max-h-80 divide-y divide-slate-100 overflow-y-auto rounded-2xl border border-slate-200">
           {rows.map((s) => (
             <li key={s.id}>
-              <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-slate-50">
-                <input type="checkbox" checked={picked.has(s.id)} onChange={() => toggle(s.id)} className="rounded border-slate-300" />
-                <span className="font-mono text-xs text-slate-500">{s.studentNumber}</span>
-                <span className="font-medium">{s.fullName}</span>
-                <span className="ml-auto text-xs text-slate-400">{s.program?.name}</span>
+              <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 text-sm hover:bg-slate-50">
+                <input type="checkbox" checked={picked.has(s.id)} onChange={() => toggle(s.id)} className="h-4 w-4 rounded border-slate-300 accent-brand-600" />
+                <span className="font-mono text-xs text-slate-600">{s.studentNumber}</span>
+                <span className="min-w-0 flex-1 truncate font-medium text-slate-800">{s.fullName}</span>
+                <span className="hidden text-right text-xs text-slate-500 sm:block">{[s.program?.name, s.level?.name].filter(Boolean).join(' · ')}</span>
               </label>
             </li>
           ))}
-          {rows.length === 0 && <li className="p-4 text-center text-sm text-slate-500">No students found</li>}
+          {rows.length === 0 && <li className="p-6 text-center text-sm text-slate-500">{programId || levelId || search ? 'No students match these filters.' : 'Everyone available has already been added.'}</li>}
         </ul>
       )}
+      {q.data && q.data.meta.totalPages > 1 && <Pagination page={page} totalPages={q.data.meta.totalPages} total={q.data.meta.total} onPage={setPage} />}
     </Modal>
   );
 }

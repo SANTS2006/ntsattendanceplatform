@@ -10,6 +10,8 @@ export function useRoleLabel(context: 'org' | 'platform' = 'org') {
   if (context === 'platform') return me?.platformRole === 'SUPER_ADMIN' ? 'Super Admin' : 'Platform Admin';
   const m = me?.organizations.find((o) => o.id === org?.id);
   if (!m) return me?.platformRole ? 'Platform admin' : 'Member';
+  const active = m.roleOptions?.find((r) => r.id === m.activeRole);
+  if (active) return `${active.name}${active.department ? ` · ${active.department}` : ''}`;
   if (m.isOwner) return 'Owner';
   return (m.roles ?? []).map((r) => r.name).join(' · ') || (m.isLecturer ? 'Lecturer' : 'Member');
 }

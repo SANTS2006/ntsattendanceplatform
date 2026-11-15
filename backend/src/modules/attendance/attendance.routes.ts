@@ -19,7 +19,7 @@ const createBody = z
     durationMinutes: z.number().int().min(1).max(24 * 60).optional(),
     latitude: z.number().min(-90).max(90).nullable().optional(),
     longitude: z.number().min(-180).max(180).nullable().optional(),
-    radiusM: z.number().int().min(5).max(50_000).optional(),
+    radiusM: z.number().int().min(14, 'The radius must be at least 14 m').max(20, 'The radius must be at most 20 m').optional(),
     minAccuracyM: z.number().int().min(1).max(10_000).optional(),
     locationRequired: z.boolean().optional(),
     selfieRequired: z.boolean().optional(),

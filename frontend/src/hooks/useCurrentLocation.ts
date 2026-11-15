@@ -1,48 +1,28 @@
 import { useCallback, useState } from 'react';
+import { bestPosition, GeoError } from '@/lib/geo';
 
 export type GeoFix = { latitude: number; longitude: number; accuracy: number; at: number };
-export type GeoState = { status: 'idle' | 'locating' | 'ok' | 'error'; fix: GeoFix | null; error: string | null };
+export type GeoState = { status: 'idle' | 'locating' | 'ok' | 'error'; fix: GeoFix | null; error: string | null; progress: number | null };
 
-const MESSAGES: Record<number, string> = {
-  1: 'Location permission was denied. Allow location access for this site in your browser settings, then try again.',
-  2: 'Your location is unavailable. Turn on location services (GPS / Wi-Fi) and try again.',
-  3: 'Getting your location took too long. Move closer to a window or turn on Wi-Fi, then try again.',
-};
-
-/** Browser geolocation with friendly errors. Requires HTTPS (or localhost). */
+/** Browser geolocation that waits for a precise fix (keeps the best reading for up to 20 s). */
 export function useCurrentLocation(initial?: { latitude: number; longitude: number } | null) {
   const [state, setState] = useState<GeoState>(
-    initial ? { status: 'ok', fix: { ...initial, accuracy: 0, at: 0 }, error: null } : { status: 'idle', fix: null, error: null },
+    initial ? { status: 'ok', fix: { ...initial, accuracy: 0, at: 0 }, error: null, progress: null } : { status: 'idle', fix: null, error: null, progress: null },
   );
 
-  const locate = useCallback(
-    () =>
-      new Promise<GeoFix | null>((resolve) => {
-        if (!('geolocation' in navigator)) {
-          setState({ status: 'error', fix: null, error: 'This browser cannot share its location.' });
-          return resolve(null);
-        }
-        if (!window.isSecureContext) {
-          setState({ status: 'error', fix: null, error: 'Location only works over a secure (https) connection.' });
-          return resolve(null);
-        }
-        setState((s) => ({ ...s, status: 'locating', error: null }));
-        navigator.geolocation.getCurrentPosition(
-          (p) => {
-            const fix = { latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: Math.round(p.coords.accuracy), at: Date.now() };
-            setState({ status: 'ok', fix, error: null });
-            resolve(fix);
-          },
-          (e) => {
-            setState((s) => ({ status: 'error', fix: s.fix, error: MESSAGES[e.code] ?? 'Could not get your location.' }));
-            resolve(null);
-          },
-          { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 },
-        );
-      }),
-    [],
-  );
+  const locate = useCallback(async (): Promise<GeoFix | null> => {
+    setState((s) => ({ ...s, status: 'locating', error: null, progress: null }));
+    try {
+      const f = await bestPosition({ targetAccuracy: 15, maxWaitMs: 20_000, onProgress: (p) => setState((s) => ({ ...s, progress: p.accuracy })) });
+      const fix = { ...f, at: Date.now() };
+      setState({ status: 'ok', fix, error: null, progress: null });
+      return fix;
+    } catch (e) {
+      setState((s) => ({ status: 'error', fix: s.fix, error: e instanceof GeoError ? e.message : 'Could not get your location.', progress: null }));
+      return null;
+    }
+  }, []);
 
-  const clear = useCallback(() => setState({ status: 'idle', fix: null, error: null }), []);
+  const clear = useCallback(() => setState({ status: 'idle', fix: null, error: null, progress: null }), []);
   return { ...state, locate, clear };
 }

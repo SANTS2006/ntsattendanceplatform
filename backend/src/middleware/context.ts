@@ -16,6 +16,8 @@ export class TenantContext {
     readonly lecturerId: string | null,
     readonly timezone: string,
     readonly db: TenantDb,
+    /** "owner", a MembershipRole id, or null when the member has no role. */
+    readonly activeRole: string | null = null,
   ) {}
 
   has(p: PermissionKey): boolean {

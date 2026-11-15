@@ -17,6 +17,8 @@ export const PERMISSIONS = {
   'lecturers.manage': ['Lecturers', 'Create and edit lecturers'],
   'events.read': ['Events', 'View events'],
   'events.manage': ['Events', 'Create and manage events and participants'],
+  'events.manage_assigned': ['Events', 'Create events and register participants for events you manage'],
+  'classes.manage_assigned': ['Academics', 'Create classes and enroll students in classes you are assigned to'],
   'attendance.sessions.create': ['Attendance', 'Create attendance sessions for assigned classes/events'],
   'attendance.sessions.manage_all': ['Attendance', 'Create and manage sessions for any class or event in scope'],
   'attendance.read_all': ['Attendance', 'View all attendance records in scope'],
@@ -53,6 +55,7 @@ export const SYSTEM_ROLES: Record<string, { name: string; description: string; p
     permissions: [
       'academics.read', 'events.read', 'attendance.sessions.create', 'attendance.read_assigned',
       'attendance.export', 'reports.read', 'reports.export', 'selfies.read',
+      'classes.manage_assigned', 'events.manage_assigned',
     ],
   },
   viewer: {

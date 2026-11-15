@@ -1,25 +1,28 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
-import { Pencil, Plus, Upload, UserMinus } from 'lucide-react';
-import { ApiError, del, errorMessage, get, patch, post } from '@/api/client';
+import { Pencil, Plus, Upload } from 'lucide-react';
+import { ApiError, errorMessage, get, patch, post } from '@/api/client';
 import { useAuth } from '@/auth/AuthProvider';
-import { Badge, Button, Card, ConfirmDialog, DataTable, EmptyState, ErrorState, Input, Modal, PageHeader, Pagination, SearchInput, Select, Spinner, Tabs, BackButton } from '@/components/ui';
+import { Badge, Button, Card, DataTable, EmptyState, ErrorState, Input, Modal, PageHeader, Pagination, SearchInput, Select, Spinner, Tabs, BackButton } from '@/components/ui';
 import { UploadStudents } from './UploadStudents';
 import { usePaged } from '@/hooks/usePaged';
 import { useOptions } from '@/hooks/useOptions';
 import type { OrgSettings, Ref, Student } from '@/types';
 import { fmtDate } from '@/utils/format';
+import { RecordHistory } from '@/components/History';
+import { StudentStatusButton } from './StudentStatus';
 
-const STATUSES = ['ACTIVE', 'INACTIVE', 'GRADUATED', 'SUSPENDED'].map((s) => ({ value: s, label: s }));
+const STATUSES = ['ACTIVE', 'INACTIVE', 'GRADUATED', 'SUSPENDED'].map((s) => ({ value: s, label: s.charAt(0) + s.slice(1).toLowerCase() }));
 
 function useLookups() {
   return {
     programs: useOptions<Ref & { code: string }>('/programs', (p) => `${p.code} · ${p.name}`),
     departments: useOptions<Ref>('/departments', (d) => d.name),
     levels: useOptions<Ref>('/levels', (l) => l.name),
+    years: useOptions<Ref & { isCurrent: boolean }>('/academic-years', (y) => `${y.name}${y.isCurrent ? ' (current)' : ''}`),
   };
 }
 
@@ -27,7 +30,7 @@ const trim = (v: unknown) => (typeof v === 'string' ? v.trim() : v);
 
 export function StudentForm({ open, onClose, student }: { open: boolean; onClose: () => void; student?: Student | null }) {
   const qc = useQueryClient();
-  const { programs, departments, levels } = useLookups();
+  const { programs, departments, levels, years } = useLookups();
   const settings = useQuery({ queryKey: ['settings'], queryFn: () => get<OrgSettings>('/organizations/settings') });
   const { can } = useAuth();
   const [tab, setTab] = useState<'single' | 'upload'>('single');
@@ -36,6 +39,15 @@ export function StudentForm({ open, onClose, student }: { open: boolean; onClose
     studentNumber: student.studentNumber, firstName: student.firstName, lastName: student.lastName, email: student.email ?? '', phone: student.phone ?? '',
     programId: student.programId ?? '', departmentId: student.departmentId ?? '', levelId: student.levelId ?? '', academicYear: student.academicYear ?? '', status: student.status,
   } : { status: 'ACTIVE' } });
+  // New students default to the organization's current academic year.
+  const currentYear = years.rows.find((y) => y.isCurrent)?.name ?? '';
+  useEffect(() => {
+    if (open && !student && currentYear && !form.getValues('academicYear')) form.setValue('academicYear', currentYear);
+  }, [open, student, currentYear, form]);
+  const yearOptions = [
+    ...years.rows.map((y) => ({ value: y.name, label: `${y.name}${y.isCurrent ? ' (current)' : ''}` })),
+    ...(student?.academicYear && !years.rows.some((y) => y.name === student.academicYear) ? [{ value: student.academicYear, label: student.academicYear }] : []),
+  ];
   const s = settings.data;
   const idHint = s ? `${s.studentIdExactLength ? `Exactly ${s.studentIdExactLength}` : `${s.studentIdMinLength}–${s.studentIdMaxLength}`} characters, ${s.studentIdCharset.toLowerCase()}${s.studentIdPrefix ? `, starts with ${s.studentIdPrefix}` : ''}` : undefined;
   /** Mirrors the server's student-ID rules so mistakes show before saving. */
@@ -95,7 +107,11 @@ export function StudentForm({ open, onClose, student }: { open: boolean; onClose
         <Select label="Program" options={programs.options} placeholder="Select your program" {...form.register('programId')} />
         <Select label="Department" options={departments.options} placeholder="Select your department" {...form.register('departmentId')} />
         <Select label="Academic level" options={levels.options} placeholder="Select your academic level" {...form.register('levelId')} />
-        <Input label="Academic year" hint="For example 2026/2027" error={err('academicYear')} {...form.register('academicYear', { setValueAs: trim, maxLength: { value: 30, message: 'Academic year must be at most 30 characters' } })} />
+        {yearOptions.length ? (
+          <Select label="Academic year" options={yearOptions} placeholder="Select your academic year" error={err('academicYear')} {...form.register('academicYear')} />
+        ) : (
+          <Input label="Academic year" hint="For example 2026/2027 — add academic years under Academic structure" error={err('academicYear')} {...form.register('academicYear', { setValueAs: trim, maxLength: { value: 30, message: 'Academic year must be at most 30 characters' } })} />
+        )}
         <button type="submit" hidden />
       </form>
       )}
@@ -164,20 +180,9 @@ export function StudentDetailPage() {
   const { id = '' } = useParams();
   const { can, org } = useAuth();
   const nav = useNavigate();
-  const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
-  const [confirm, setConfirm] = useState(false);
   const q = useQuery({ queryKey: ['student', id], queryFn: () => get<StudentDetail>(`/students/${id}`) });
   const history = usePaged<{ id: string; referenceNumber: string; submittedAt: string; status: string; contextSnapshot: string; locationVerified: boolean | null }>(`student-att-${id}`, `/students/${id}/attendance`);
-  const deactivate = useMutation({
-    mutationFn: () => del(`/students/${id}`),
-    onSuccess: () => {
-      toast.success('Student deactivated');
-      setConfirm(false);
-      qc.invalidateQueries({ queryKey: ['student', id] });
-    },
-    onError: (e) => toast.error(errorMessage(e)),
-  });
   if (q.isLoading) return <Spinner />;
   if (q.error || !q.data) return <ErrorState message={errorMessage(q.error)} />;
   const s = q.data;
@@ -191,7 +196,7 @@ export function StudentDetailPage() {
           <>
             <Badge>{s.status}</Badge>
             {can('students.update') && <Button variant="secondary" icon={<Pencil className="h-4 w-4" />} onClick={() => setEditing(true)}>Edit</Button>}
-            {can('students.delete') && s.status === 'ACTIVE' && <Button variant="danger" icon={<UserMinus className="h-4 w-4" />} onClick={() => setConfirm(true)}>Deactivate</Button>}
+            <StudentStatusButton student={s} />
           </>
         }
       />
@@ -234,8 +239,10 @@ export function StudentDetailPage() {
         />
         {history.meta && <Pagination page={history.meta.page} totalPages={history.meta.totalPages} total={history.meta.total} onPage={history.setPage} />}
       </Card>
+      <Card title="History" className="mt-6">
+        <RecordHistory targetType="Student" targetId={s.id} perspective="student" />
+      </Card>
       <StudentForm open={editing} onClose={() => setEditing(false)} student={s} />
-      <ConfirmDialog open={confirm} onClose={() => setConfirm(false)} onConfirm={() => deactivate.mutate()} loading={deactivate.isPending} danger title="Deactivate student?" confirmLabel="Deactivate" message="Deactivated students cannot check in. Their attendance history is kept." />
     </div>
   );
 }

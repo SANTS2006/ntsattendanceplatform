@@ -128,7 +128,12 @@ export async function update(ctx: TenantContext, id: string, input: Partial<Stud
   }
   if (input.email !== undefined) data.email = input.email?.toLowerCase() ?? null;
   const s = await ctx.db.student.update({ where: { id }, data, include: listInclude });
-  await audit({ action: 'student.updated', targetType: 'Student', targetId: id, metadata: { fields: Object.keys(input) }, req });
+  const statusChanged = input.status !== undefined && input.status !== existing.status;
+  await audit({
+    action: statusChanged ? 'student.status_changed' : 'student.updated', targetType: 'Student', targetId: id,
+    metadata: { fields: Object.keys(input), name: s.fullName, studentNumber: s.studentNumber, ...(statusChanged ? { statusFrom: existing.status, statusTo: input.status } : {}) },
+    req,
+  });
   return s;
 }
 
@@ -142,7 +147,10 @@ export async function remove(ctx: TenantContext, id: string, permanent: boolean,
   } else {
     await ctx.db.student.update({ where: { id }, data: { status: 'INACTIVE' } });
   }
-  await audit({ action: permanent ? 'student.deleted' : 'student.deactivated', targetType: 'Student', targetId: id, req });
+  await audit({
+    action: permanent ? 'student.deleted' : 'student.status_changed', targetType: 'Student', targetId: id,
+    metadata: { name: s.fullName, studentNumber: s.studentNumber, ...(permanent ? {} : { statusFrom: s.status, statusTo: 'INACTIVE' }) }, req,
+  });
 }
 
 export async function attendanceHistory(ctx: TenantContext, id: string, q: { page: number; pageSize: number }) {
@@ -157,4 +165,20 @@ export async function attendanceHistory(ctx: TenantContext, id: string, q: { pag
     ctx.db.attendanceRecord.count({ where }),
   ]);
   return { items, total };
+}
+
+export type StudentStatus = 'ACTIVE' | 'INACTIVE' | 'GRADUATED' | 'SUSPENDED';
+
+/** Change a student's standing (reactivate, deactivate, graduate, suspend) with an optional reason for the history. */
+export async function changeStatus(ctx: TenantContext, id: string, status: StudentStatus, reason: string | undefined, req: Request) {
+  const s = await get(ctx, id);
+  // Deactivating keeps its own permission; every other change needs update rights.
+  assertDeptWrite(ctx, status === 'INACTIVE' ? 'students.delete' : 'students.update', s.departmentId);
+  if (s.status === status) throw badRequest(`This student is already ${status.toLowerCase()}`, 'STATUS_UNCHANGED');
+  const updated = await ctx.db.student.update({ where: { id }, data: { status }, include: listInclude });
+  await audit({
+    action: 'student.status_changed', targetType: 'Student', targetId: id,
+    metadata: { name: s.fullName, studentNumber: s.studentNumber, statusFrom: s.status, statusTo: status, ...(reason ? { reason } : {}) }, req,
+  });
+  return updated;
 }

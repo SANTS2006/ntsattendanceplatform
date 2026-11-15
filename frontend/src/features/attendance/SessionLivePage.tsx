@@ -147,7 +147,17 @@ export function SessionLivePage() {
       </p>
       {fullscreen && <p className="mt-2 text-2xl font-semibold text-emerald-700">{st.present} present</p>}
       <div className="mt-3 flex flex-wrap justify-center gap-2">
-        <Button size="sm" variant="secondary" onClick={() => setFullscreen((f) => !f)} icon={fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => {
+            if (fullscreen) return setFullscreen(false);
+            // New tab (sessionStorage — including the current code — is copied to it).
+            const w = window.open(`/present/${id}`, '_blank');
+            if (!w) setFullscreen(true); // pop-up blocked: fall back to the in-page view
+          }}
+          icon={fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+        >
           {fullscreen ? 'Exit full screen' : 'Present full screen'}
         </Button>
         {!fullscreen && (

@@ -23,8 +23,18 @@ type MembershipSnapshot = {
   userStatus: string;
   isOwner: boolean;
   lecturerId: string | null;
-  grants: { key: PermissionKey; departmentId: string | null }[];
+  /** Role assignments (a member may hold several and switch between them). */
+  assignments: { id: string; roleKey: string; departmentId: string | null; permissions: PermissionKey[] }[];
+  activeRole: string | null;
 };
+
+/** The role a member is acting as: the stored choice if still valid, else owner, else the first assignment. */
+export function resolveActiveRole(isOwner: boolean, assignmentIds: string[], stored: string | null): string | null {
+  if (stored === 'owner' && isOwner) return 'owner';
+  if (stored && assignmentIds.includes(stored)) return stored;
+  if (isOwner) return 'owner';
+  return assignmentIds[0] ?? null;
+}
 
 export async function loadMembership(userId: string, organizationId: string): Promise<MembershipSnapshot | null> {
   return cached(cacheKeys.tenant(organizationId, 'membership', userId), 30, async () => {
@@ -34,7 +44,10 @@ export async function loadMembership(userId: string, organizationId: string): Pr
         organization: { select: { status: true, timezone: true } },
         user: { select: { status: true } },
         lecturer: { select: { id: true, status: true } },
-        roles: { include: { role: { include: { permissions: { include: { permission: { select: { key: true } } } } } } } },
+        roles: {
+          include: { role: { include: { permissions: { include: { permission: { select: { key: true } } } } } } },
+          orderBy: { createdAt: 'asc' },
+        },
       },
     });
     if (!m || m.status !== 'ACTIVE') return null;
@@ -46,9 +59,13 @@ export async function loadMembership(userId: string, organizationId: string): Pr
       userStatus: m.user.status,
       isOwner: m.isOwner,
       lecturerId: m.lecturer && m.lecturer.status === 'ACTIVE' ? m.lecturer.id : null,
-      grants: m.roles.flatMap((mr) =>
-        mr.role.permissions.map((rp) => ({ key: rp.permission.key as PermissionKey, departmentId: mr.departmentId })),
-      ),
+      assignments: m.roles.map((mr) => ({
+        id: mr.id,
+        roleKey: mr.role.key,
+        departmentId: mr.departmentId,
+        permissions: mr.role.permissions.map((rp) => rp.permission.key as PermissionKey),
+      })),
+      activeRole: m.activeRole,
     };
   });
 }
@@ -76,14 +93,15 @@ export async function buildTenantContext(userId: string, organizationId: string)
   if (!m) throw forbidden('You are not a member of this organization', 'NOT_A_MEMBER');
   if (m.userStatus !== 'ACTIVE') throw forbidden('Your account is not active', 'ACCOUNT_INACTIVE');
   if (m.orgStatus !== 'ACTIVE') throw forbidden('This organization is suspended or deactivated', 'ORGANIZATION_INACTIVE');
+  // Only the ACTIVE role's permissions apply — switching roles drops the previous role's access.
+  const active = resolveActiveRole(m.isOwner, m.assignments.map((a) => a.id), m.activeRole);
+  const actingAsOwner = active === 'owner';
+  const assignment = m.assignments.find((a) => a.id === active);
   const perms = new Map<PermissionKey, PermissionScope>();
-  for (const g of m.grants) {
-    const cur = perms.get(g.key);
-    if (cur === 'all') continue;
-    if (g.departmentId === null) perms.set(g.key, 'all');
-    else perms.set(g.key, [...new Set([...(cur ?? []), g.departmentId])]);
-  }
-  return new TenantContext(userId, m.organizationId, m.membershipId, m.isOwner, perms, m.lecturerId, m.timezone, tenantDb(m.organizationId));
+  for (const key of assignment?.permissions ?? []) perms.set(key, assignment!.departmentId === null ? 'all' : [assignment!.departmentId]);
+  // The lecturer profile only applies while acting in a role that runs attendance.
+  const lecturerId = actingAsOwner || perms.has('attendance.sessions.create') ? m.lecturerId : null;
+  return new TenantContext(userId, m.organizationId, m.membershipId, actingAsOwner, perms, lecturerId, m.timezone, tenantDb(m.organizationId), active);
 }
 
 export const requirePermission =

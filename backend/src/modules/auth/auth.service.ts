@@ -1,3 +1,4 @@
+import { invalidateMembership, resolveActiveRole } from '../../middleware/auth.js';
 import type { Request } from 'express';
 import type { User } from '@prisma/client';
 import { env } from '../../config/env.js';
@@ -485,7 +486,7 @@ export async function me(userId: string, activeOrg: string | null) {
         where: { status: 'ACTIVE' },
         include: {
           organization: { select: { id: true, name: true, slug: true, type: true, status: true, logoKey: true, timezone: true } },
-          roles: { include: { role: { select: { key: true, name: true } } } },
+          roles: { include: { role: { select: { key: true, name: true } }, department: { select: { name: true } } }, orderBy: { createdAt: 'asc' } },
           lecturer: { select: { id: true } },
         },
         orderBy: { createdAt: 'asc' },
@@ -509,6 +510,12 @@ export async function me(userId: string, activeOrg: string | null) {
       isOwner: m.isOwner,
       isLecturer: !!m.lecturer,
       roles: m.roles.map((r) => ({ key: r.role.key, name: r.role.name })),
+      // Roles the member can act as; exactly one is active at a time.
+      roleOptions: [
+        ...(m.isOwner ? [{ id: 'owner', key: 'owner', name: 'Owner', department: null as string | null }] : []),
+        ...m.roles.map((r) => ({ id: r.id, key: r.role.key, name: r.role.name, department: r.department?.name ?? null })),
+      ],
+      activeRole: resolveActiveRole(m.isOwner, m.roles.map((r) => r.id), m.activeRole),
     })),
   };
 }
@@ -658,4 +665,20 @@ export async function confirmEmailChange(userId: string, codeRaw: string, req: R
 
 export async function cancelEmailChange(userId: string) {
   await prisma.emailChangeRequest.deleteMany({ where: { userId } });
+}
+
+/** Act as one of the member's roles (or "owner"). Only that role's permissions apply afterwards. */
+export async function switchRole(userId: string, organizationId: string, role: string, req: Request) {
+  const m = await prisma.organizationMembership.findUnique({
+    where: { organizationId_userId: { organizationId, userId } },
+    include: { roles: { select: { id: true } } },
+  });
+  if (!m || m.status !== 'ACTIVE') throw forbidden('You are not a member of this organization', 'NOT_A_MEMBER');
+  const allowed = role === 'owner' ? m.isOwner : m.roles.some((r) => r.id === role);
+  if (!allowed) throw badRequest('You do not hold this role', 'INVALID_ROLE');
+  const from = resolveActiveRole(m.isOwner, m.roles.map((r) => r.id), m.activeRole);
+  await prisma.organizationMembership.update({ where: { id: m.id }, data: { activeRole: role } });
+  await invalidateMembership(organizationId, userId);
+  await audit({ action: 'member.role_switched', organizationId, targetType: 'Membership', targetId: m.id, metadata: { from, to: role }, req });
+  return { activeRole: role };
 }

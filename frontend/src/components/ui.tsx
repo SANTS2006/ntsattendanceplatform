@@ -23,7 +23,7 @@ export const Button = forwardRef<HTMLButtonElement, BtnProps>(function Button(
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={clsx(
-        'relative inline-flex items-center justify-center gap-2 rounded-xl font-semibold whitespace-nowrap transition-all duration-150 select-none active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 disabled:active:scale-100',
+        'relative inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl font-semibold whitespace-nowrap transition-all duration-150 select-none hover:-translate-y-px hover:shadow-md active:translate-y-0 active:scale-[0.96] active:shadow-sm focus-visible:ring-4 focus-visible:ring-brand-500/25 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-none disabled:active:scale-100',
         size === 'sm' && 'px-3 py-1.5 text-xs',
         size === 'md' && 'px-4 py-2.5 text-sm',
         size === 'lg' && 'px-6 py-3.5 text-base',
@@ -31,7 +31,7 @@ export const Button = forwardRef<HTMLButtonElement, BtnProps>(function Button(
         variant === 'success' && 'bg-gradient-to-r from-emerald-600 to-check text-white shadow-[0_10px_30px_-10px_rgb(34_197_94/0.6)] hover:brightness-110',
         variant === 'secondary' && 'border border-slate-200 bg-white text-slate-700 shadow-sm hover:border-brand-200 hover:bg-brand-50/50 hover:text-brand-700',
         variant === 'danger' && 'bg-gradient-to-r from-rose-600 to-rose-500 text-white shadow-[0_10px_30px_-12px_rgb(225_29_72/0.6)] hover:brightness-110',
-        variant === 'ghost' && 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+        variant === 'ghost' && 'text-slate-600 hover:bg-slate-100 hover:text-slate-950 hover:shadow-none',
         className,
       )}
       {...rest}
@@ -528,7 +528,7 @@ export function Tabs({ tabs, active, onChange }: { tabs: { key: string; label: s
             onClick={() => onChange(t.key)}
             className={clsx(
               'rounded-xl px-4 py-2 text-sm font-semibold whitespace-nowrap transition-all',
-              active === t.key ? 'bg-gradient-to-r from-navy-800 to-brand-700 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-navy-800',
+              active === t.key ? 'bg-gradient-to-r from-navy-800 to-brand-700 text-white shadow-md' : 'cursor-pointer text-slate-600 hover:bg-slate-100 hover:text-slate-950 active:scale-[0.97]',
             )}
           >
             {t.label}

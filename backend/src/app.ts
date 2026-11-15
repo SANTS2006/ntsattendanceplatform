@@ -28,6 +28,7 @@ import { publicAttendanceRouter } from './modules/public-attendance/public.route
 import { reportsRouter } from './modules/reports/reports.routes.js';
 import { studentsRouter } from './modules/students/students.routes.js';
 import { importsRouter } from './modules/imports/imports.routes.js';
+import { historyRouter } from './modules/history/history.routes.js';
 import { platformSupportRouter, supportRouter } from './modules/support/support.routes.js';
 import { backupsRouter } from './modules/backups/backups.routes.js';
 
@@ -125,6 +126,7 @@ export function createApp(): Express {
   api.use('/platform', platformSupportRouter);
   api.use('/platform', backupsRouter);
   api.use(supportRouter);
+  api.use(historyRouter);
   api.use('/notifications', notificationsRouter);
   api.use('/files', filesRouter);
   // Test-only: read captured emails (sign-up codes) in end-to-end tests. Never registered otherwise.

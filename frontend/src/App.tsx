@@ -52,6 +52,8 @@ const ReportsPage = lazyNamed(() => import('@/features/reports/ReportsPage'), 'R
 const SettingsPage = lazyNamed(() => import('@/features/settings/SettingsPage'), 'SettingsPage');
 const AccountPage = lazyNamed(() => import('@/features/settings/AccountPage'), 'AccountPage');
 const NotificationsPage = lazyNamed(() => import('@/features/notifications/NotificationsPage'), 'NotificationsPage');
+const HistoryPage = lazyNamed(() => import('@/features/history/HistoryPage'), 'HistoryPage');
+const PresentQrPage = lazyNamed(() => import('@/features/attendance/PresentQrPage'), 'PresentQrPage');
 const sp = () => import('@/features/support/SupportPages');
 const SupportPage = lazyNamed(sp, 'SupportPage');
 const FeedbackPage = lazyNamed(sp, 'FeedbackPage');
@@ -101,6 +103,8 @@ export function App() {
         <Route element={<RequireAuth />}>
           <Route path="onboarding" element={<OnboardingPage />} />
           <Route element={<RequireOrg />}>
+            {/* Projector view: full page, outside the app shell */}
+            <Route path="present/:id" element={guard(ATT_CREATE, <PresentQrPage />)} />
             <Route path="app" element={<AppLayout />}>
               <Route index element={<DashboardPage />} />
               <Route path="attendance" element={guard(ATT_READ, <SessionsPage />)} />
@@ -120,6 +124,7 @@ export function App() {
               <Route path="settings" element={<SettingsPage />} />
               <Route path="account" element={<AccountPage />} />
               <Route path="notifications" element={<NotificationsPage />} />
+              <Route path="history" element={guard(['audit.read'], <HistoryPage />)} />
               <Route path="support" element={<RequireOrgAdmin><SupportPage /></RequireOrgAdmin>} />
               <Route path="feedback" element={<RequireOrgAdmin><FeedbackPage /></RequireOrgAdmin>} />
             </Route>

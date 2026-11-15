@@ -25,6 +25,9 @@ export type OrgSummary = {
   isOwner: boolean;
   isLecturer: boolean;
   roles: { key: string; name: string }[];
+  /** Roles the member can act as (one is active at a time). */
+  roleOptions?: { id: string; key: string; name: string; department: string | null }[];
+  activeRole?: string | null;
 };
 
 export type Me = {
