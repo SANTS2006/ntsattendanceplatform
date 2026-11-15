@@ -97,7 +97,7 @@ See [SECURITY.md](documentation/SECURITY.md) and [TENANT_ISOLATION.md](documenta
 ## Next steps
 
 1. Fill `backend/.env` with Neon (dev + test branches), Cloudinary, Brevo, R2 and Google values; run
-   `db:migrate` and `db:neon:setup`; register through the UI to confirm the Brevo code arrives and
+   `db:migrate`; register through the UI to confirm the Brevo code arrives and
    uploads land in Cloudinary; run a backup from Platform → Backup & recovery.
 2. Create the Render Blueprint from `render.yaml` (see DEPLOYMENT.md) and run the k6 script against it.
 3. Optional: SIS integration adapters, face-match module.

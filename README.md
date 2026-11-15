@@ -34,14 +34,10 @@ cp backend/.env.example backend/.env
 
 Fill in `backend/.env` (every variable is explained in the file). Use a Neon **dev** branch for
 `DATABASE_URL`/`DIRECT_URL` and a separate **test** branch for `TEST_DATABASE_URL`/`TEST_DIRECT_URL`.
-Then prepare the database once:
+Then create the tables once:
 
 ```bash
 npm run db:migrate --workspace backend
-```
-
-```bash
-npm run db:neon:setup --workspace backend
 ```
 
 Optionally load demo data:

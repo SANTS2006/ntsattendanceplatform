@@ -10,7 +10,7 @@
 # Values marked `sync: false` are prompted for when you create the Blueprint in the Render dashboard.
 
 envVarGroups:
-  - name: ntsattend-shared
+  - name: ntsattend
     envVars:
       - key: NODE_ENV
         value: production
@@ -20,7 +20,7 @@ envVarGroups:
         value: "1" # exactly one proxy (Render's load balancer) in front of the app
       - key: APP_URL
         sync: false # e.g. https://ntsattend.onrender.com or your custom domain
-      # Neon: pooled (-pooler) URL as the non-superuser nts_app role; direct URL as the owner (migrations only)
+      # Neon: pooled (-pooler, with &pgbouncer=true) URL for the app; direct URL for migrations
       - key: DATABASE_URL
         sync: false
       - key: DIRECT_URL
@@ -80,7 +80,7 @@ services:
     healthCheckPath: /health/ready
     autoDeploy: true
     envVars:
-      - fromGroup: ntsattend-shared
+      - fromGroup: ntsattend
       - key: REDIS_URL
         fromService:
           type: keyvalue
@@ -95,7 +95,7 @@ services:
     startCommand: npm run start:worker --workspace backend
     autoDeploy: true
     envVars:
-      - fromGroup: ntsattend-shared
+      - fromGroup: ntsattend
       - key: REDIS_URL
         fromService:
           type: keyvalue

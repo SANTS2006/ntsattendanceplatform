@@ -13,15 +13,13 @@ export const prisma = new PrismaClient({
 export type Db = typeof prisma;
 
 /**
- * Row-Level Security is silently skipped for superusers and BYPASSRLS roles (e.g. Neon console
- * roles, which inherit neon_superuser). Refuse to run like that in production.
+ * Reports whether PostgreSQL Row-Level Security policies are active for the connected role.
+ * Neon's default (owner) role bypasses RLS, so the policies are dormant there; tenant isolation is
+ * then enforced by the tenant-scoped Prisma client and the cross-tenant/immutability triggers.
  */
-export async function assertRlsEnforced(log: { warn: (o: object, m: string) => void }) {
+export async function reportRlsStatus(log: { info: (o: object, m: string) => void }) {
   const [role] = await prisma.$queryRaw<{ u: string; rolsuper: boolean; rolbypassrls: boolean }[]>`
     SELECT current_user AS u, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
-  if (role && (role.rolsuper || role.rolbypassrls)) {
-    const msg = `Database role "${role.u}" bypasses Row-Level Security (superuser/BYPASSRLS). Connect as nts_app — see documentation/DATABASE.md.`;
-    if (env.isProd) throw new Error(msg);
-    log.warn({ role: role.u }, msg);
-  }
+  const active = !!role && !role.rolsuper && !role.rolbypassrls;
+  log.info({ role: role?.u, rlsPoliciesActive: active }, active ? 'Row-Level Security policies active' : 'Row-Level Security policies dormant for this role; app-level tenant scoping and triggers enforce isolation');
 }

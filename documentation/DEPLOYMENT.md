@@ -8,16 +8,16 @@ managed services; nothing is stored on the server's disk.
 | Web app + API | Render web service `ntsattend` | Express serves the built React app and the API from one origin (first-party cookies, no CORS) |
 | Background jobs | Render worker `ntsattend-worker` | Imports, reports, emails, scheduled backups, retention cleanup |
 | Queues / realtime | Render Key Value `ntsattend-redis` | BullMQ, shared rate limits, Socket.IO fan-out (`noeviction`) |
-| Database | Neon PostgreSQL | Pooled URL as `nts_app` (RLS enforced), direct URL for migrations |
+| Database | Neon PostgreSQL | Pooled URL for the app, direct URL for migrations |
 | Files | Cloudinary | Private assets, signed expiring URLs |
 | Email | Brevo | Transactional API |
 | Backups | Cloudflare R2 | Platform → Backup & recovery |
 
 ## 1. Prepare the external services
 
-1. **Neon:** create a project, then follow [DATABASE.md](DATABASE.md) to run migrations and
-   `db:neon:setup` once from your computer (this creates the `nts_app` runtime role). Copy the pooled
-   (`-pooler`) URL for `nts_app` → `DATABASE_URL`, and the direct owner URL → `DIRECT_URL`.
+1. **Neon:** create a project. From *Connect*, copy the URL with *Connection pooling* on →
+   `DATABASE_URL` (append `&pgbouncer=true`) and with pooling off → `DIRECT_URL`. Migrations run
+   automatically on deploy; see [DATABASE.md](DATABASE.md).
 2. **Cloudinary:** Dashboard → *API Keys*: copy the cloud name, API key and API secret.
 3. **Brevo:** *SMTP & API → API keys* → create a key. Under *Senders, domains & dedicated IPs*,
    authenticate your domain (SPF/DKIM) and add the sender used in `MAIL_FROM`.
@@ -31,7 +31,7 @@ managed services; nothing is stored on the server's disk.
 
 1. Push the repository to GitHub/GitLab.
 2. Render dashboard → **New → Blueprint** → select the repository. Render reads `render.yaml`.
-3. Fill in every value Render prompts for (`sync: false` entries in the `ntsattend-shared` group).
+3. Fill in every value Render prompts for (`sync: false` entries in the `ntsattend` group).
    Generate the four secrets locally:
 
    ```bash
@@ -82,7 +82,6 @@ bypass Row-Level Security.
 | Symptom | Fix |
 |---|---|
 | Deploy fails with "Invalid environment configuration" | Set the variables listed in the log (values are never printed) |
-| "role bypasses Row-Level Security" | `DATABASE_URL` must use `nts_app` (run `db:neon:setup`), not the Neon owner role |
 | Sign-up codes not arriving | Check `BREVO_API_KEY` and that `MAIL_FROM` is a verified sender; logs show "Brevo send failed (status)" |
 | Google button missing | `GOOGLE_CLIENT_ID` not set, or origin not authorized in Google Cloud |
 | Uploads fail | Verify the three `CLOUDINARY_*` values; check *Platform → System health* |

@@ -27,7 +27,7 @@
 | Path | Responsibility |
 |---|---|
 | `config/` | Zod-validated environment (`env.ts`; refuses to boot when misconfigured), permission catalogue and system roles |
-| `db/prisma.ts` | Base Prisma client (system paths only) + `assertRlsEnforced` boot check |
+| `db/prisma.ts` | Base Prisma client (system paths only) + `reportRlsStatus` boot log |
 | `db/tenant.ts` | **Tenant-scoped data access**: query extension injecting `organizationId`, RLS-bound transactions (`tenantDb`, `withTenant`) |
 | `middleware/` | Authentication, tenant context, permission checks, rate limits, CSRF guard, error mapping |
 | `lib/route.ts` | `defineRoute`: one declaration registers the Express chain *and* its OpenAPI operation |

@@ -19,7 +19,6 @@
     "openapi": "tsx --env-file-if-exists=.env scripts/export-openapi.ts",
     "platform:grant-admin": "tsx --env-file-if-exists=.env scripts/create-platform-admin.ts",
     "load:burst": "tsx scripts/load-burst.ts",
-    "db:neon:setup": "tsx --env-file-if-exists=.env scripts/neon-setup.ts",
     "dev:sandbox": "tsx watch --env-file-if-exists=.env scripts/sandbox.ts"
   },
   "dependencies": {

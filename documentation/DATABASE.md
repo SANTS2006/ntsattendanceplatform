@@ -24,30 +24,28 @@ future `migrate` runs).
 
 ## Connecting to Neon
 
-1. Create a Neon project and database. Note the **direct** connection string (owner role, e.g.
-   `neondb_owner`) and the **pooled** host (`…-pooler…`).
-2. In `backend/.env` set `DIRECT_URL` to the direct owner connection (`?sslmode=require`).
-3. Apply migrations:
+1. Create a Neon project. Open **Connect** and copy two connection strings for the same role
+   (e.g. `neondb_owner`):
+   - *Connection pooling* **on** (host contains `-pooler`) → `DATABASE_URL`, and append
+     `&pgbouncer=true&connect_timeout=15`;
+   - *Connection pooling* **off** (direct host) → `DIRECT_URL` (used by migrations).
+2. Put both in `backend/.env` (locally) or the Render env group (production).
+3. Create the tables:
 
    ```bash
    npm run db:migrate --workspace backend
    ```
 
-4. Create the runtime role (Neon console roles have BYPASSRLS, which would skip tenant RLS):
-
-   ```bash
-   NTS_APP_PASSWORD='a-long-random-password' npm run db:neon:setup --workspace backend
-   ```
-
-5. Set `DATABASE_URL` to the **pooled** host as `nts_app`:
-   `postgresql://nts_app:<password>@<endpoint>-pooler.<region>.aws.neon.tech/<db>?sslmode=require&pgbouncer=true&connect_timeout=15`
-6. Start the API. It logs a warning (development) or refuses to start (production) if the role can bypass RLS.
+   On Render this runs automatically before every deploy.
+4. Start the API. Its start-up log includes `rlsPoliciesActive` — `false` with Neon's owner role
+   (see [TENANT_ISOLATION.md](TENANT_ISOLATION.md)): tenant isolation is enforced by the tenant-scoped
+   Prisma client and the database triggers.
 
 ## Development and test branches
 
 Create two extra Neon branches from production (or from an empty main branch), e.g. `dev` and
 `test`. Point `DATABASE_URL`/`DIRECT_URL` at `dev` and `TEST_DATABASE_URL`/`TEST_DIRECT_URL` at
-`test`, run `db:migrate` and `db:neon:setup` against each, and the test suite migrates its branch
+`test`, run `db:migrate` against the dev branch, and the test suite migrates its branch
 automatically. The tests delete and re-create data — never point them at production.
 
 ## Migrations workflow

@@ -33,8 +33,12 @@ A tenant id supplied in a request body or query is **never** used. Mass-assigned
   transaction only that tenant's rows are visible or writable.
 - **Append-only audit log**: UPDATE and DELETE on `audit_logs` are rejected.
 
-RLS is ignored for superusers and BYPASSRLS roles. The API refuses to start in production when
-connected as such a role. On Neon create the `nts_app` role with `npm run db:neon:setup`.
+RLS is ignored for superusers and BYPASSRLS roles — including Neon's default owner role, which this
+deployment uses. The policies therefore stay defined but dormant, and isolation rests on the
+tenant-scoped Prisma client (every query filtered by `organizationId`), the cross-tenant foreign-key
+and immutability triggers (which apply to every role), and the API isolation tests. The start-up log
+reports `rlsPoliciesActive`. To re-activate RLS later, connect the app as a role created without
+BYPASSRLS that has only data privileges; no code change is needed.
 
 ## 4. Files and caches
 

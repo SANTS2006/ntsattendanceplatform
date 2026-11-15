@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { createApp } from './app.js';
 import { env } from './config/env.js';
-import { assertRlsEnforced, prisma } from './db/prisma.js';
+import { prisma, reportRlsStatus } from './db/prisma.js';
 import { closeQueues } from './infra/queue.js';
 import { closeRealtime, initRealtime } from './infra/realtime.js';
 import { closeRedis } from './infra/redis.js';
@@ -11,7 +11,7 @@ import { logger } from './lib/logger.js';
 import { ensurePermissionCatalogue } from './modules/organizations/organizations.service.js';
 
 registerJobs();
-await assertRlsEnforced(logger);
+await reportRlsStatus(logger);
 await ensurePermissionCatalogue();
 
 const app = createApp();
