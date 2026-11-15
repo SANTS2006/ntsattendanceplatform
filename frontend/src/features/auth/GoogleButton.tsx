@@ -98,6 +98,11 @@ export function GoogleButton({ mode, onMfa, onSuccess }: { mode: 'signin' | 'sig
   if (!clientId) return null;
   return (
     <div className="space-y-4">
+      <div className="flex items-center gap-3 text-xs font-semibold tracking-wide text-slate-400 uppercase">
+        <span className="h-px flex-1 bg-gradient-to-r from-transparent to-slate-200" />
+        or
+        <span className="h-px flex-1 bg-gradient-to-l from-transparent to-slate-200" />
+      </div>
       <div className="relative flex min-h-11 items-center justify-center">
         <div ref={holder} className="flex w-full justify-center" />
         {busy && (
@@ -107,11 +112,6 @@ export function GoogleButton({ mode, onMfa, onSuccess }: { mode: 'signin' | 'sig
         )}
       </div>
       {failed && <p className="text-center text-xs text-rose-600">Google sign-in couldn’t load. Check your connection or use email instead.</p>}
-      <div className="flex items-center gap-3 text-xs font-semibold tracking-wide text-slate-400 uppercase">
-        <span className="h-px flex-1 bg-gradient-to-r from-transparent to-slate-200" />
-        or use your email
-        <span className="h-px flex-1 bg-gradient-to-l from-transparent to-slate-200" />
-      </div>
     </div>
   );
 }

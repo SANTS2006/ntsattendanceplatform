@@ -1,13 +1,17 @@
-# Render Blueprint for NTSAttend — https://render.com/docs/blueprint-spec
+# Render Blueprint for NTSAttend (free plan) — https://render.com/docs/blueprint-spec
 #
-# One web service serves BOTH the API and the built React app (same origin → first-party cookies,
-# no CORS), a background worker runs BullMQ jobs (imports, reports, emails, backups), and Render
-# Key Value (Redis) backs the queues, shared rate limits and Socket.IO fan-out.
+# One FREE web service serves the API, the built React app (same origin → first-party cookies,
+# no CORS) and the background jobs (emails, imports, reports, backups run inside the same process;
+# WORKERS_IN_API=true). No paid resources, so no payment details are needed:
+#   - no background worker service (Render has no free worker plan),
+#   - no Render Key Value (Redis comes from your own Redis Cloud free database via REDIS_URL),
+#   - no preDeployCommand (paid-only) — migrations run at the end of the build instead.
 #
-# External services (configured through the env group below, never committed):
-#   Neon (PostgreSQL) · Cloudinary (files) · Brevo (email) · Cloudflare R2 (backups) · Google (optional sign-in)
+# External services (values entered in the Render dashboard, never committed):
+#   Neon (PostgreSQL) · Redis Cloud · Cloudinary (files) · Brevo (email) · Cloudflare R2 (backups) · Google
 #
-# Values marked `sync: false` are prompted for when you create the Blueprint in the Render dashboard.
+# Free web services sleep after ~15 minutes without traffic and take up to a minute to wake;
+# scheduled backups run whenever the service is awake.
 
 envVarGroups:
   - name: ntsattend
@@ -19,11 +23,18 @@ envVarGroups:
       - key: TRUST_PROXY
         value: "1" # exactly one proxy (Render's load balancer) in front of the app
       - key: APP_URL
-        sync: false # e.g. https://ntsattend.onrender.com or your custom domain
-      # Neon: pooled (-pooler, with &pgbouncer=true) URL for the app; direct URL for migrations
+        value: https://ntsattend.onrender.com
+      - key: EMAIL_BASE_URL
+        value: https://ntsattend.onrender.com
+      - key: WORKERS_IN_API
+        value: "true"
+      # Neon: pooled (-pooler) URL for the app; direct URL for migrations
       - key: DATABASE_URL
         sync: false
       - key: DIRECT_URL
+        sync: false
+      # Redis Cloud (free database) connection URL: redis://default:<password>@<host>:<port>
+      - key: REDIS_URL
         sync: false
       # Secrets — generate each with: node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
       - key: JWT_ACCESS_SECRET
@@ -64,40 +75,14 @@ envVarGroups:
         sync: false
 
 services:
-  - type: keyvalue
-    name: ntsattend-redis
-    plan: starter
-    maxmemoryPolicy: noeviction # BullMQ requires keys never to be evicted
-    ipAllowList: [] # only reachable from services in this Render account
-
   - type: web
     name: ntsattend
     runtime: node
-    plan: starter
-    buildCommand: npm ci --include=dev && npm run db:generate --workspace backend && npm run build
-    preDeployCommand: npm run db:migrate --workspace backend
+    plan: free
+    region: ohio # same AWS region as the Neon database (us-east-2) — keeps queries fast
+    buildCommand: npm ci --include=dev && npm run db:generate --workspace backend && npm run build && npm run db:migrate --workspace backend
     startCommand: npm run start --workspace backend
     healthCheckPath: /health/ready
     autoDeploy: true
     envVars:
       - fromGroup: ntsattend
-      - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: ntsattend-redis
-          property: connectionString
-
-  - type: worker
-    name: ntsattend-worker
-    runtime: node
-    plan: starter
-    buildCommand: npm ci --include=dev && npm run db:generate --workspace backend && npm run build --workspace backend
-    startCommand: npm run start:worker --workspace backend
-    autoDeploy: true
-    envVars:
-      - fromGroup: ntsattend
-      - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: ntsattend-redis
-          property: connectionString

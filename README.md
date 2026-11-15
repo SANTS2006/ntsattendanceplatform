@@ -13,7 +13,7 @@ automatically), take a selfie and check in. Lecturers watch attendance arrive li
 | Files | **Cloudinary** (private assets, signed expiring URLs) — selfies, logos, profile pictures, imports, reports |
 | Email | **Brevo** transactional API |
 | Backups | **Cloudflare R2** (scheduled + on-demand, restore from the Super Admin console) |
-| Hosting | **Render** (web service + worker + Key Value) — see `render.yaml` |
+| Hosting | **Render free plan** (one web service at https://ntsattend.onrender.com, jobs in-process) + Redis Cloud — see `render.yaml` |
 | Sign-in | Email + password (6-character emailed code at sign-up), Google, optional TOTP MFA |
 
 **No Docker, no local database, no local file storage.** Everything runs natively and all data lives

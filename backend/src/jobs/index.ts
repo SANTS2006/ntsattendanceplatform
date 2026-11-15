@@ -37,7 +37,7 @@ export async function runSelfieRetention() {
 }
 
 export function registerJobs() {
-  registerJobHandler('email', async (d) => sendMail(d as { to: string; subject: string; text: string }));
+  registerJobHandler('email', async (d) => sendMail(d as { to: string; subject: string; text: string; html?: string }));
   registerJobHandler('student-import', async (d) => runImportJob(d as { organizationId: string; importId: string }));
   registerJobHandler('report-export', async (d) => runExportJob(d as { organizationId: string; exportId: string }));
   registerJobHandler('selfie-retention', async () => {

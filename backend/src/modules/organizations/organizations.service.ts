@@ -14,10 +14,18 @@ import { audit } from '../audit/audit.service.js';
 import { processImage } from '../media/image.js';
 
 export async function ensurePermissionCatalogue() {
+  // Few round trips: the database may be far away (e.g. Neon from a developer laptop), and this
+  // runs on every boot. Read once, insert what is missing, update only what changed.
   const { PERMISSIONS } = await import('../../config/permissions.js');
-  for (const [key, [group, description]] of Object.entries(PERMISSIONS)) {
-    await prisma.permission.upsert({ where: { key }, create: { key, group, description }, update: { group, description } });
-  }
+  const wanted = Object.entries(PERMISSIONS).map(([key, [group, description]]) => ({ key, group, description }));
+  const existing = new Map((await prisma.permission.findMany({ select: { key: true, group: true, description: true } })).map((p) => [p.key, p]));
+  const missing = wanted.filter((p) => !existing.has(p.key));
+  const changed = wanted.filter((p) => {
+    const e = existing.get(p.key);
+    return e && (e.group !== p.group || e.description !== p.description);
+  });
+  if (missing.length) await prisma.permission.createMany({ data: missing, skipDuplicates: true });
+  if (changed.length) await prisma.$transaction(changed.map((p) => prisma.permission.update({ where: { key: p.key }, data: { group: p.group, description: p.description } })));
 }
 
 const slugify = (s: string) =>

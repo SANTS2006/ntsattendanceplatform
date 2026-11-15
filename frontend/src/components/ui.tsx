@@ -329,7 +329,6 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: {
           size === 'xl' && 'sm:max-w-5xl',
         )}
       >
-        <div className="h-1 w-full bg-gradient-to-r from-brand-700 via-cyan-brand to-check" />
         <header className="flex items-center justify-between px-6 pt-5 pb-3">
           <h2 className="text-lg font-extrabold text-navy-900">{title}</h2>
           <button className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" onClick={onClose} aria-label="Close">

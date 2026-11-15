@@ -4,8 +4,9 @@
  */
 import { env } from './config/env.js';
 import { prisma } from './db/prisma.js';
-import { closeQueues, scheduleRepeatable, startWorkers } from './infra/queue.js';
+import { closeQueues } from './infra/queue.js';
 import { closeRedis } from './infra/redis.js';
+import { startBackgroundProcessing } from './jobs/background.js';
 import { registerJobs } from './jobs/index.js';
 import { logger } from './lib/logger.js';
 
@@ -15,13 +16,10 @@ if (!env.REDIS_URL) {
 }
 
 registerJobs();
-const workers = startWorkers({ email: 10, 'student-import': 2, 'report-export': 2, 'selfie-retention': 1, backup: 1, restore: 1 });
-await scheduleRepeatable('selfie-retention', 6 * 3600_000);
-if (env.backupsEnabled && env.BACKUP_INTERVAL_HOURS > 0) await scheduleRepeatable('backup', env.BACKUP_INTERVAL_HOURS * 3600_000, { kind: 'SCHEDULED' });
-logger.info({ queues: workers.length }, 'NTS worker started');
+const stopWorkers = await startBackgroundProcessing('worker');
 
 async function shutdown() {
-  await Promise.all(workers.map((w) => w.close()));
+  await stopWorkers();
   await closeQueues();
   await closeRedis();
   await prisma.$disconnect();

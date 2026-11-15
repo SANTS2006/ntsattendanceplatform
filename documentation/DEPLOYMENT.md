@@ -1,13 +1,18 @@
 # Deployment on Render (no Docker)
 
-NTSAttend deploys as a Render **Blueprint** (`render.yaml` at the repository root). All data lives in
-managed services; nothing is stored on the server's disk.
+NTSAttend deploys as a Render **Blueprint** (`render.yaml` at the repository root) on Render's
+**free plan — no payment details needed**. All data lives in managed services; nothing is stored on
+the server's disk.
+
+Why no card is requested: the Blueprint contains only one `plan: free` web service. Render's
+background workers, paid Key Value plans and `preDeployCommand` all require billing, so instead the
+background jobs run inside the web service (`WORKERS_IN_API=true`), Redis comes from a free
+**Redis Cloud** database, and migrations run at the end of the build.
 
 | Component | Where | Notes |
 |---|---|---|
-| Web app + API | Render web service `ntsattend` | Express serves the built React app and the API from one origin (first-party cookies, no CORS) |
-| Background jobs | Render worker `ntsattend-worker` | Imports, reports, emails, scheduled backups, retention cleanup |
-| Queues / realtime | Render Key Value `ntsattend-redis` | BullMQ, shared rate limits, Socket.IO fan-out (`noeviction`) |
+| Web app + API + background jobs | Render free web service `ntsattend` (https://ntsattend.onrender.com) | Express serves the built React app and the API from one origin; BullMQ workers (emails, imports, reports, backups) run in the same process |
+| Queues / realtime | Redis Cloud (free database) | BullMQ, shared rate limits, Socket.IO fan-out — set `REDIS_URL` |
 | Database | Neon PostgreSQL | Pooled URL for the app, direct URL for migrations |
 | Files | Cloudinary | Private assets, signed expiring URLs |
 | Email | Brevo | Transactional API |
@@ -24,7 +29,9 @@ managed services; nothing is stored on the server's disk.
 4. **Cloudflare R2:** create a private bucket (e.g. `ntsattend-backups`), then *Manage R2 API
    tokens* → create a token with **Object Read & Write** on that bucket only. Copy the account id,
    access key id and secret.
-5. **Google (optional):** create an OAuth client of type *Web application* and add your Render URL
+5. **Redis Cloud:** create a free database at redis.io and copy its public endpoint as
+   `redis://default:<password>@<host>:<port>` → `REDIS_URL`.
+6. **Google (optional):** create an OAuth client of type *Web application* and add your Render URL
    (and custom domain) to *Authorized JavaScript origins*.
 
 ## 2. Create the Blueprint
@@ -44,10 +51,11 @@ managed services; nothing is stored on the server's disk.
    node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
    ```
 
-   Set `APP_URL` to the service URL (e.g. `https://ntsattend.onrender.com`) or your custom domain.
+   `APP_URL` and `EMAIL_BASE_URL` are already set to `https://ntsattend.onrender.com` in
+   `render.yaml`; change both if you use a custom domain.
 4. Apply. Each deploy runs: `npm ci` → `prisma generate` → build (backend + frontend) →
-   **pre-deploy** `prisma migrate deploy` (uses `DIRECT_URL`) → start. The health check is
-   `GET /health/ready` (database + Redis).
+   `prisma migrate deploy` (uses `DIRECT_URL`) → start. The health check is `GET /health/ready`
+   (database + Redis).
 5. Register your own account on the live site, then grant yourself Super Admin from the web
    service's **Shell** tab:
 
@@ -62,12 +70,15 @@ The API validates every variable at start-up and refuses to boot when something 
 (names are reported, values never printed). Production also refuses to start if the database role can
 bypass Row-Level Security.
 
-## Scaling
+## Free plan limits and scaling
 
-- Increase web instances freely — sessions are stateless JWTs, rate limits and Socket.IO use Redis.
-- Run more worker instances for large imports/reports; jobs are idempotent.
-- `preDeployCommand` requires a paid Render instance type. On the free type, run
-  `npm run db:migrate --workspace backend` from the Shell after each deploy that adds a migration.
+- The free web service sleeps after about 15 minutes without traffic; the first request after that
+  takes up to a minute while it wakes. Scheduled backups and selfie clean-up run whenever it is awake.
+- Brevo: if *Authorised IPs* is enabled in Brevo, either turn it off or emails from Render will be
+  rejected (Render's outgoing IP addresses change).
+- To scale later (paid plans): add a `worker` service running `npm run start:worker --workspace backend`
+  and set `WORKERS_IN_API=false` on the web service; add more web instances freely — sessions are
+  stateless JWTs and rate limits/Socket.IO use Redis.
 
 ## Monitoring
 

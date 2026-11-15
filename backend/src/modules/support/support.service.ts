@@ -5,7 +5,7 @@ import { prisma } from '../../db/prisma.js';
 import { forbidden, notFound } from '../../lib/errors.js';
 import type { TenantContext } from '../../middleware/context.js';
 import { audit } from '../audit/audit.service.js';
-import { notifyUser, queueEmail } from '../notifications/notify.js';
+import { emails, notifyUser } from '../notifications/notify.js';
 
 /** Organization owners and administrators (organization.manage) talk to the platform team. */
 export function assertCanContactPlatform(ctx: TenantContext) {
@@ -139,11 +139,7 @@ export async function platformReply(id: string, adminId: string, input: { body: 
       userId: creator.id, organizationId: t.organizationId, type: 'support.reply', title: 'The NTSAttend team replied',
       body: `Re: ${t.subject}`, data: { ticketId: id, link: `/app/support?ticket=${id}` },
     });
-    await queueEmail(
-      creator.email,
-      `Re: ${t.subject} — NTSAttend support`,
-      `Hello ${creator.firstName},\n\nThe NTSAttend team replied to your request "${t.subject}":\n\n${input.body.slice(0, 1500)}\n\nView the conversation:\n${env.APP_URL}/app/support?ticket=${id}`,
-    );
+    await emails.supportReply(creator.email, creator.firstName, t.subject, input.body, id);
   }
   await audit({ action: 'platform.support_replied', organizationId: t.organizationId, targetType: 'SupportTicket', targetId: id, actorType: 'PLATFORM_ADMIN', req });
   return withMessages(id);

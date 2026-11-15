@@ -5,6 +5,7 @@ import { prisma, reportRlsStatus } from './db/prisma.js';
 import { closeQueues } from './infra/queue.js';
 import { closeRealtime, initRealtime } from './infra/realtime.js';
 import { closeRedis } from './infra/redis.js';
+import { startBackgroundProcessing } from './jobs/background.js';
 import { registerJobs, runSelfieRetention } from './jobs/index.js';
 import { runBackupJob } from './modules/backups/backups.service.js';
 import { logger } from './lib/logger.js';
@@ -19,6 +20,9 @@ const server = http.createServer(app);
 initRealtime(server);
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 66_000;
+
+// One-service hosting (e.g. Render free): process queued jobs here instead of a separate worker.
+const stopWorkers = env.REDIS_URL && env.WORKERS_IN_API ? await startBackgroundProcessing('api') : null;
 
 server.listen(env.PORT, () => logger.info({ port: env.PORT, env: env.NODE_ENV, redis: !!env.REDIS_URL }, 'NTS API listening'));
 
@@ -37,6 +41,7 @@ async function shutdown(signal: string) {
   if (maintenance) clearInterval(maintenance);
   if (backups) clearInterval(backups);
   server.close();
+  if (stopWorkers) await stopWorkers();
   await closeRealtime();
   await closeQueues();
   await closeRedis();

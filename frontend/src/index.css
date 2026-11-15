@@ -241,6 +241,9 @@
 .dark .bg-white\/75 { background-color: rgb(15 25 45 / 0.75); }
 .dark .bg-white\/80 { background-color: rgb(15 25 45 / 0.8); }
 .dark .bg-white\/90 { background-color: rgb(15 25 45 / 0.9); }
+@media (min-width: 64rem) {
+  .dark .lg\:bg-white\/80 { background-color: rgb(15 25 45 / 0.8); }
+}
 .dark .glass {
   background-color: rgb(15 25 45 / 0.78);
   border-color: rgb(255 255 255 / 0.08);

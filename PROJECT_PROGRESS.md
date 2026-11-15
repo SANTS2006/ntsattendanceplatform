@@ -6,7 +6,7 @@ _Last updated: 2026-11-15_
 
 React 19 SPA ⇄ Express 5 API (stateless) ⇄ PostgreSQL (Neon) with RLS · Redis/BullMQ workers ·
 Socket.IO · Cloudinary (all files) · Brevo (email) · Cloudflare R2 (backups) · Google Identity Services.
-Hosted on Render (web + worker + Key Value). Native install, no Docker, no local data.
+Hosted free on Render (one web service, background jobs in-process) with Redis Cloud. Native install, no Docker, no local data.
 Details: [documentation/ARCHITECTURE.md](documentation/ARCHITECTURE.md).
 
 ## Completed phases

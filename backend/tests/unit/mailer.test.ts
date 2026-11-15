@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { renderEmail } from '../../src/infra/emailTemplate.js';
 import { parseSender, renderHtml, sendMail, sendViaBrevo, testOutbox } from '../../src/infra/mailer.js';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -11,6 +12,34 @@ describe('mailer', () => {
     expect(html).toContain('letter-spacing:10px');
     expect(html).toContain('>K7QM2X<');
     expect(html).toContain('&lt;b&gt;Ada&lt;/b&gt;'); // user-supplied text is escaped
+  });
+
+  it('renders the branded template: header, code box, details, action, footer and matching text', () => {
+    const { html, text } = renderEmail({
+      preheader: 'Your code is AB12CD',
+      eyebrow: 'Verify your email',
+      title: 'Confirm <your> email',
+      name: 'Ada',
+      paragraphs: ['Use this code:'],
+      code: { value: 'AB12CD', caption: 'Expires in 10 minutes' },
+      details: [['Organization', 'Freetown <Poly>']],
+      action: { label: 'Open', url: 'https://app.example/x?a=1&b=2' },
+      securityTip: 'Never share it.',
+      reason: 'Because you signed up.',
+    });
+    expect(html).toContain('NTSAttend');
+    expect(html).toContain('Secure QR attendance');
+    expect(html).toContain('>AB12CD<');
+    expect(html).toContain('Confirm &lt;your&gt; email'); // escaped
+    expect(html).toContain('Freetown &lt;Poly&gt;');
+    expect(html).toContain('href="https://app.example/x?a=1&amp;b=2"');
+    expect(html).toMatch(/NTS Digital Solutions/);
+    expect(html).toMatch(/\/privacy/);
+    expect(html).toContain('Your code is AB12CD'); // hidden preheader
+    expect(text).toMatch(/^Hello Ada,/);
+    expect(text).toMatch(/^ {4}AB12CD$/m);
+    expect(text).toContain('Open: https://app.example/x?a=1&b=2');
+    expect(text).toContain('Organization: Freetown <Poly>');
   });
 
   it('captures mail in tests instead of sending it', async () => {

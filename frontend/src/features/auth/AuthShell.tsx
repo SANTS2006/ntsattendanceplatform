@@ -93,25 +93,28 @@ export function AuthShell({ title, subtitle, children, footer, wide }: { title: 
         </div>
       </aside>
 
-      {/* Form panel */}
-      <main className="bg-app relative flex min-h-screen flex-1 flex-col">
+      {/* Form panel — on small screens the brand gradient fills the whole page behind the card */}
+      <main className="bg-app relative isolate flex min-h-screen flex-1 flex-col">
+        <div className="bg-hero animate-gradient pointer-events-none fixed inset-0 -z-10 lg:hidden" aria-hidden>
+          <div className="absolute -top-16 -right-16 h-56 w-56 rounded-full bg-cyan-400/25 blur-3xl" />
+          <div className="absolute bottom-[-5rem] left-[-5rem] h-72 w-72 rounded-full bg-brand-500/30 blur-3xl" />
+          <div className="absolute inset-0 opacity-[0.07] [background-image:radial-gradient(white_1px,transparent_1px)] [background-size:22px_22px]" />
+        </div>
         <div className="absolute top-4 right-4 z-10 hidden lg:block">
           <ThemeToggle />
         </div>
-        <div className="bg-hero animate-gradient relative overflow-hidden px-5 pt-6 pb-16 text-white lg:hidden">
-          <div className="pointer-events-none absolute -top-10 -right-10 h-40 w-40 rounded-full bg-cyan-400/30 blur-2xl" />
-          <div className="relative flex items-center justify-between">
+        <div className="relative px-5 pt-6 pb-6 text-white lg:hidden">
+          <div className="flex items-center justify-between">
             <Link to="/" aria-label="NTSAttend home">
               <Logo light />
             </Link>
             <ThemeToggle light />
           </div>
-          <p className="relative mt-3 text-sm text-white/75">Attendance that proves presence.</p>
+          <p className="mt-3 text-sm text-white/75">Attendance that proves presence.</p>
         </div>
-        <div className="-mt-10 flex flex-1 items-start justify-center px-3 pb-10 sm:px-6 lg:mt-0 lg:items-center lg:py-14">
+        <div className="flex flex-1 items-start justify-center px-3 pb-10 sm:px-6 lg:items-center lg:py-14">
           <div className={clsx('animate-fade-up w-full', wide ? 'max-w-xl' : 'max-w-md')}>
-            <div className="glass relative overflow-hidden rounded-[1.75rem] shadow-[0_30px_70px_-28px_rgb(11_31_77/0.45)]">
-              <div className="h-1.5 w-full bg-gradient-to-r from-brand-700 via-cyan-brand to-check" />
+            <div className="relative overflow-hidden rounded-[1.75rem] border border-white/60 bg-white shadow-[0_30px_70px_-28px_rgb(11_31_77/0.45)] lg:bg-white/80 lg:backdrop-blur-xl">
               <div className="p-5 sm:p-8">
                 <div className="flex items-start gap-3.5">
                   <span className="hidden h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-navy-800 via-brand-700 to-cyan-brand shadow-[var(--shadow-glow)] sm:flex">
@@ -126,8 +129,8 @@ export function AuthShell({ title, subtitle, children, footer, wide }: { title: 
               </div>
               {footer && <div className="border-t border-slate-200/70 bg-slate-50/60 px-5 py-4 text-center text-sm text-slate-500 sm:px-8">{footer}</div>}
             </div>
-            <p className="mt-5 flex items-center justify-center gap-1.5 text-xs text-slate-400">
-              <ShieldCheck className="h-3.5 w-3.5" /> Secured with encryption · <Link to="/privacy" className="hover:text-brand-600">Privacy</Link> · <Link to="/terms" className="hover:text-brand-600">Terms</Link>
+            <p className="mt-5 flex items-center justify-center gap-1.5 text-xs text-white/70 lg:text-slate-400">
+              <ShieldCheck className="h-3.5 w-3.5" /> Secured with encryption · <Link to="/privacy" className="hover:text-white lg:hover:text-brand-600">Privacy</Link> · <Link to="/terms" className="hover:text-white lg:hover:text-brand-600">Terms</Link>
             </p>
           </div>
         </div>

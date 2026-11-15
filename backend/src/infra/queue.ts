@@ -16,6 +16,8 @@ export type JobHandler = (data: Record<string, unknown>) => Promise<void>;
 const handlers = new Map<JobName, JobHandler>();
 const queues = new Map<JobName, Queue>();
 const inflight = new Set<Promise<void>>();
+/** One connection shared by every Queue (producers); workers get their own blocking connections. */
+let producerConnection: ReturnType<typeof newRedisConnection> | null = null;
 
 export function registerJobHandler(name: JobName, handler: JobHandler) {
   handlers.set(name, handler);
@@ -24,7 +26,8 @@ export function registerJobHandler(name: JobName, handler: JobHandler) {
 function queue(name: JobName) {
   let q = queues.get(name);
   if (!q) {
-    q = new Queue(name, { connection: newRedisConnection(), prefix: 'nts' });
+    producerConnection ??= newRedisConnection();
+    q = new Queue(name, { connection: producerConnection, prefix: 'nts' });
     queues.set(name, q);
   }
   return q;
@@ -87,4 +90,6 @@ export async function scheduleRepeatable(name: JobName, everyMs: number, data: R
 export async function closeQueues() {
   await Promise.all([...queues.values()].map((q) => q.close()));
   queues.clear();
+  if (producerConnection) await producerConnection.quit().catch(() => undefined);
+  producerConnection = null;
 }

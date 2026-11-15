@@ -45,6 +45,10 @@ const schema = z
     BACKUP_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
     BACKUP_INTERVAL_HOURS: z.coerce.number().int().min(0).max(24 * 7).default(24),
 
+    /** Run the BullMQ workers inside the API process (free hosting: one service). Set false when a separate worker runs. */
+    WORKERS_IN_API: z.preprocess(blank, z.enum(['true', 'false', '1', '0']).default('true').transform((v) => v === 'true' || v === '1')),
+    /** Public site used for links inside emails (defaults to APP_URL). */
+    EMAIL_BASE_URL: z.preprocess(blank, z.string().url().optional()),
     WEB_DIST_DIR: optional, // built frontend served by the API (single-origin hosting on Render)
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
     RATE_LIMIT_DISABLED: bool,
@@ -66,6 +70,16 @@ const schema = z
     if (r2 > 0 && r2 < 4) ctx.addIssue({ code: 'custom', path: ['R2_BUCKET'], message: 'Set all four R2_* variables (or none to disable backups)' });
   });
 
+// Cloudinary's own docs call it CLOUDINARY_CLOUD_NAME; accept either spelling.
+if (!blank(process.env.CLOUDINARY_NAME) && process.env.CLOUDINARY_CLOUD_NAME) process.env.CLOUDINARY_NAME = process.env.CLOUDINARY_CLOUD_NAME;
+
+// Prisma behind Neon's PgBouncer pooler needs pgbouncer=true (no server-side prepared statements).
+// Applied before the Prisma client reads DATABASE_URL, so the pooled URL can be pasted as-is.
+for (const key of ['DATABASE_URL', 'TEST_DATABASE_URL'] as const) {
+  const url = process.env[key];
+  if (url && /-pooler\./.test(url) && !/[?&]pgbouncer=/.test(url)) process.env[key] = `${url}${url.includes('?') ? '&' : '?'}pgbouncer=true`;
+}
+
 const parsed = schema.safeParse(process.env);
 if (!parsed.success) {
   const issues = parsed.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`).join('\n');
@@ -76,6 +90,7 @@ const d = parsed.data;
 export const env = {
   ...d,
   API_URL: d.API_URL ?? d.APP_URL,
+  EMAIL_BASE_URL: (d.EMAIL_BASE_URL ?? d.APP_URL).replace(/\/$/, ''),
   isProd: d.NODE_ENV === 'production',
   isTest: d.NODE_ENV === 'test',
   cookieSecure: d.NODE_ENV === 'production',

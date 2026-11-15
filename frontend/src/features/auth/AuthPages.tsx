@@ -63,7 +63,7 @@ function GoogleTermsNote() {
   const cfg = useAuthConfig();
   if (!cfg.data?.googleClientId) return null;
   return (
-    <p className="-mt-2 text-center text-xs text-slate-400">
+    <p className="-mt-1 text-center text-xs text-slate-400">
       By continuing with Google you agree to the <Link to="/terms" className="font-semibold text-slate-500 hover:text-brand-600">Terms</Link> and{' '}
       <Link to="/privacy" className="font-semibold text-slate-500 hover:text-brand-600">Privacy Policy</Link>.
     </p>
@@ -143,8 +143,6 @@ export function LoginPage() {
       }
     >
       <div className="space-y-5">
-        <GoogleButton mode="signin" onMfa={setMfaToken} onSuccess={() => toast.success('Signed in with Google')} />
-        <GoogleTermsNote />
         <form
           className="space-y-4"
           noValidate
@@ -172,6 +170,8 @@ export function LoginPage() {
             {form.formState.isSubmitting ? 'Signing in…' : 'Sign in'}
           </Button>
         </form>
+        <GoogleButton mode="signin" onMfa={setMfaToken} onSuccess={() => toast.success('Signed in with Google')} />
+        <GoogleTermsNote />
       </div>
     </AuthShell>
   );
@@ -336,10 +336,6 @@ export function RegisterPage() {
     >
       <Steps step={1} />
       <div className="space-y-5">
-        <div className="relative">
-          <GoogleButton mode="signup" onMfa={setMfaToken} onSuccess={(created) => { toast.success(created ? 'Account created with Google' : 'Signed in with Google'); nav('/onboarding'); }} />
-        </div>
-        <GoogleTermsNote />
         <form
           className="space-y-4"
           noValidate
@@ -370,6 +366,8 @@ export function RegisterPage() {
           </Button>
           <p className="text-center text-xs text-slate-400">We’ll email you a 6-character code. Your account is created only after you verify it.</p>
         </form>
+        <GoogleButton mode="signup" onMfa={setMfaToken} onSuccess={(created) => { toast.success(created ? 'Account created with Google' : 'Signed in with Google'); nav('/onboarding'); }} />
+        <GoogleTermsNote />
       </div>
     </AuthShell>
   );
