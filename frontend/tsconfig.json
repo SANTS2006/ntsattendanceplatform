@@ -14,7 +14,7 @@
     "noEmit": true,
     "allowImportingTsExtensions": false,
     "resolveJsonModule": true,
-    "types": ["node", "vite/client", "vitest/globals"],
+    "types": ["node", "vite/client", "vitest/globals", "vite-plugin-pwa/react"],
     "baseUrl": ".",
     "paths": { "@/*": ["src/*"] }
   },

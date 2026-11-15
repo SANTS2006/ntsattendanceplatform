@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { CheckCircle2, MapPin, QrCode, ShieldCheck } from 'lucide-react';
 import { Logo, LOGO_SRC } from '@/components/brand';
 import { ThemeToggle } from '@/theme/ThemeProvider';
+import { InstallAppButton } from '@/pwa/InstallButtons';
 
 const FEATURES = [
   { icon: QrCode, title: 'Expiring, rotating QR codes', body: 'Unguessable codes that die in minutes — screenshots can’t be shared.' },
@@ -132,6 +133,9 @@ export function AuthShell({ title, subtitle, children, footer, wide }: { title: 
             <p className="mt-5 flex items-center justify-center gap-1.5 text-xs text-white/70 lg:text-slate-400">
               <ShieldCheck className="h-3.5 w-3.5" /> Secured with encryption · <Link to="/privacy" className="hover:text-white lg:hover:text-brand-600">Privacy</Link> · <Link to="/terms" className="hover:text-white lg:hover:text-brand-600">Terms</Link>
             </p>
+            <div className="mt-3 flex justify-center">
+              <InstallAppButton label="Install the NTSAttend app" />
+            </div>
           </div>
         </div>
       </main>

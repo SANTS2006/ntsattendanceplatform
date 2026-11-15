@@ -9,6 +9,7 @@ import { Avatar, useRoleLabel } from '@/components/UserCard';
 import { Button, Modal } from '@/components/ui';
 import { LogoSpinner } from '@/components/brand';
 import { ThemeSegmented } from '@/theme/ThemeProvider';
+import { InstallAppMenuItem } from '@/pwa/InstallButtons';
 import type { AppNotification } from '@/types';
 import { fmtDateTime } from '@/utils/format';
 
@@ -79,6 +80,7 @@ export function ProfileMenu({ context = 'org' }: { context?: 'org' | 'platform' 
               <Link to={`${base}/account`} role="menuitem" onClick={close} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-brand-50 hover:text-brand-700">
                 <UserCog className="h-[18px] w-[18px]" /> Profile settings
               </Link>
+              <InstallAppMenuItem onDone={close} />
               <div className="px-3 py-2">
                 <p className="mb-1.5 text-[11px] font-bold tracking-wider text-slate-400 uppercase">Appearance</p>
                 <ThemeSegmented />

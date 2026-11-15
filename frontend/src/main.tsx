@@ -6,6 +6,8 @@ import { Toaster } from 'react-hot-toast';
 import { ApiError } from '@/api/client';
 import { AuthProvider } from '@/auth/AuthProvider';
 import { ThemeProvider } from '@/theme/ThemeProvider';
+import { PwaProvider } from '@/pwa/pwa';
+import { PwaUi } from '@/pwa/PwaUi';
 import { App } from './App';
 import './index.css';
 
@@ -26,8 +28,11 @@ createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthProvider>
+          <PwaProvider>
           <App />
+          <PwaUi />
           <Toaster position="top-right" toastOptions={{ duration: 4000, className: '!bg-white !text-slate-800 !rounded-xl !shadow-lg', style: { fontSize: '14px' } }} />
+          </PwaProvider>
         </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>

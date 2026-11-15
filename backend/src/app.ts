@@ -151,6 +151,7 @@ export function createApp(): Express {
         // Vite's hashed bundles never change, so they can be cached for a year.
         setHeaders: (res, file) => {
           if (/[\\/]assets[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          else if (/(sw\.js|workbox-[^\\/]+\.js|registerSW\.js|manifest\.webmanifest|index\.html)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
         },
       }),
     );

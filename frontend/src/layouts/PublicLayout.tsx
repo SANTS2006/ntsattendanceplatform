@@ -4,6 +4,7 @@ import { Menu, X } from 'lucide-react';
 import { useAuth } from '@/auth/AuthProvider';
 import { Logo } from '@/components/Logo';
 import { ThemeToggle } from '@/theme/ThemeProvider';
+import { InstallAppButton } from '@/pwa/InstallButtons';
 
 const links = [
   { to: '/features', label: 'Features' },
@@ -30,6 +31,7 @@ export function PublicLayout() {
             ))}
           </nav>
           <div className="hidden items-center gap-3 md:flex">
+            <InstallAppButton variant="ghost" />
             <ThemeToggle />
             {status === 'authenticated' ? (
               <Link to="/app" className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
@@ -58,6 +60,7 @@ export function PublicLayout() {
                 {l.label}
               </Link>
             ))}
+            <InstallAppButton className="my-2 w-full" />
             <Link to={status === 'authenticated' ? '/app' : '/login'} className="block py-2 text-sm font-medium text-brand-700" onClick={() => setOpen(false)}>
               {status === 'authenticated' ? 'Open dashboard' : 'Sign in'}
             </Link>
