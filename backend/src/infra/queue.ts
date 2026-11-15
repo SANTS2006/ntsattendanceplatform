@@ -1,7 +1,7 @@
 import { Queue, Worker, type JobsOptions } from 'bullmq';
 import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
-import { newRedisConnection } from './redis.js';
+import { logRedisError, newRedisConnection } from './redis.js';
 
 /**
  * Background jobs (BullMQ on Redis).
@@ -28,6 +28,7 @@ function queue(name: JobName) {
   if (!q) {
     producerConnection ??= newRedisConnection();
     q = new Queue(name, { connection: producerConnection, prefix: 'nts' });
+    q.on('error', logRedisError); // otherwise BullMQ prints every connection error itself
     queues.set(name, q);
   }
   return q;
@@ -68,6 +69,7 @@ export function startWorkers(concurrency: Partial<Record<JobName, number>> = {})
       concurrency: concurrency[name] ?? 4,
     });
     w.on('failed', (job, err) => logger.error({ job: name, id: job?.id, err: err.message }, 'job failed'));
+    w.on('error', logRedisError);
     workers.push(w);
   }
   return workers;

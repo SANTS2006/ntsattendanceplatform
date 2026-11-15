@@ -23,7 +23,10 @@ const schema = z
       .string()
       .min(1)
       .refine((v) => /^postgres(ql)?:\/\/\S+$/.test(v), 'DATABASE_URL must be a PostgreSQL URL starting with postgresql:// (paste only the URL from Neon → Connect, with connection pooling on)'),
-    REDIS_URL: optional,
+    REDIS_URL: z.preprocess(
+      blank,
+      z.string().refine((v) => /^rediss?:\/\/\S+$/.test(v), 'REDIS_URL must start with redis:// or rediss:// (paste only the URL, e.g. redis://default:<password>@<host>:<port>)').optional(),
+    ),
 
     JWT_ACCESS_SECRET: z.string().min(32),
     JWT_PUBLIC_SECRET: z.string().min(32),
@@ -91,6 +94,14 @@ export function cleanDatabaseUrl(raw: string | undefined) {
 for (const key of ['DATABASE_URL', 'DIRECT_URL', 'TEST_DATABASE_URL', 'TEST_DIRECT_URL'] as const) {
   if (process.env[key]) process.env[key] = cleanDatabaseUrl(process.env[key]);
 }
+
+/** Same idea for Redis: Redis Cloud's Connect panel offers `redis-cli -u redis://…`. */
+export function cleanRedisUrl(raw: string | undefined) {
+  if (!raw) return raw;
+  const v = raw.trim().replace(/^[A-Z_]+\s*=\s*/, '');
+  return /rediss?:\/\/[^\s'"`]+/.exec(v)?.[0] ?? v;
+}
+if (process.env.REDIS_URL) process.env.REDIS_URL = cleanRedisUrl(process.env.REDIS_URL);
 
 // Prisma behind Neon's PgBouncer pooler needs pgbouncer=true (no server-side prepared statements).
 // Applied before the Prisma client reads DATABASE_URL, so the pooled URL can be pasted as-is.

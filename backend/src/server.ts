@@ -4,7 +4,7 @@ import { env } from './config/env.js';
 import { prisma, reportRlsStatus } from './db/prisma.js';
 import { closeQueues } from './infra/queue.js';
 import { closeRealtime, initRealtime } from './infra/realtime.js';
-import { closeRedis } from './infra/redis.js';
+import { closeRedis, redisTarget } from './infra/redis.js';
 import { startBackgroundProcessing } from './jobs/background.js';
 import { registerJobs, runSelfieRetention } from './jobs/index.js';
 import { runBackupJob } from './modules/backups/backups.service.js';
@@ -12,6 +12,7 @@ import { logger } from './lib/logger.js';
 import { ensurePermissionCatalogue } from './modules/organizations/organizations.service.js';
 
 registerJobs();
+if (env.REDIS_URL) logger.info({ redis: redisTarget() }, 'Redis configured');
 await reportRlsStatus(logger);
 await ensurePermissionCatalogue();
 
@@ -21,10 +22,17 @@ initRealtime(server);
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 66_000;
 
-// One-service hosting (e.g. Render free): process queued jobs here instead of a separate worker.
-const stopWorkers = env.REDIS_URL && env.WORKERS_IN_API ? await startBackgroundProcessing('api') : null;
-
 server.listen(env.PORT, () => logger.info({ port: env.PORT, env: env.NODE_ENV, redis: !!env.REDIS_URL }, 'NTS API listening'));
+
+// One-service hosting (e.g. Render free): process queued jobs here instead of a separate worker.
+// Started after listen so a slow or unreachable Redis never blocks the web server from coming up.
+let stopWorkers: (() => Promise<void>) | null = null;
+if (env.REDIS_URL && env.WORKERS_IN_API) {
+  startBackgroundProcessing('api').then(
+    (stop) => (stopWorkers = stop),
+    (e) => logger.error({ err: e instanceof Error ? e.message : String(e) }, 'background workers failed to start'),
+  );
+}
 
 // Without Redis there is no separate worker process, so run maintenance in-process (dev only).
 const maintenance = !env.REDIS_URL ? setInterval(() => runSelfieRetention().catch(() => undefined), 6 * 3600_000) : null;
