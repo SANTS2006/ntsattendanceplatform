@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+frontend/playwright-report/
+frontend/test-results/
+.DS_Store
+frontend/.env
+backend/tests/performance/last-burst-result.json

@@ -1,0 +1,103 @@
+# Render Blueprint for NTSAttend — https://render.com/docs/blueprint-spec
+#
+# One web service serves BOTH the API and the built React app (same origin → first-party cookies,
+# no CORS), a background worker runs BullMQ jobs (imports, reports, emails, backups), and Render
+# Key Value (Redis) backs the queues, shared rate limits and Socket.IO fan-out.
+#
+# External services (configured through the env group below, never committed):
+#   Neon (PostgreSQL) · Cloudinary (files) · Brevo (email) · Cloudflare R2 (backups) · Google (optional sign-in)
+#
+# Values marked `sync: false` are prompted for when you create the Blueprint in the Render dashboard.
+
+envVarGroups:
+  - name: ntsattend-shared
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: TRUST_PROXY
+        value: "1" # exactly one proxy (Render's load balancer) in front of the app
+      - key: APP_URL
+        sync: false # e.g. https://ntsattend.onrender.com or your custom domain
+      # Neon: pooled (-pooler) URL as the non-superuser nts_app role; direct URL as the owner (migrations only)
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      # Secrets — generate each with: node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_PUBLIC_SECRET
+        sync: false
+      - key: DATA_ENCRYPTION_KEY # 32 random bytes, base64: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+        sync: false
+      - key: HASH_PEPPER
+        sync: false
+      # Cloudinary (all uploaded files)
+      - key: CLOUDINARY_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      # Brevo (transactional email)
+      - key: BREVO_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false # e.g. NTSAttend <no-reply@your-domain.com> (a verified Brevo sender)
+      # Cloudflare R2 (database backups) — set all four or none
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: BACKUP_RETENTION_DAYS
+        value: "30"
+      - key: BACKUP_INTERVAL_HOURS
+        value: "24"
+      # Optional "Continue with Google"
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+
+services:
+  - type: keyvalue
+    name: ntsattend-redis
+    plan: starter
+    maxmemoryPolicy: noeviction # BullMQ requires keys never to be evicted
+    ipAllowList: [] # only reachable from services in this Render account
+
+  - type: web
+    name: ntsattend
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --include=dev && npm run db:generate --workspace backend && npm run build
+    preDeployCommand: npm run db:migrate --workspace backend
+    startCommand: npm run start --workspace backend
+    healthCheckPath: /health/ready
+    autoDeploy: true
+    envVars:
+      - fromGroup: ntsattend-shared
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: ntsattend-redis
+          property: connectionString
+
+  - type: worker
+    name: ntsattend-worker
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --include=dev && npm run db:generate --workspace backend && npm run build --workspace backend
+    startCommand: npm run start:worker --workspace backend
+    autoDeploy: true
+    envVars:
+      - fromGroup: ntsattend-shared
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: ntsattend-redis
+          property: connectionString

@@ -1,0 +1,34 @@
+{
+  "name": "nts-platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "NTS — Next-generation Tenant attendance System (multi-tenant QR attendance SaaS)",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:sandbox": "npm run dev:sandbox --workspace backend",
+    "dev:api": "npm run dev --workspace backend",
+    "dev:worker": "npm run worker --workspace backend",
+    "dev:web": "npm run dev --workspace frontend",
+    "build": "npm run build --workspace backend && npm run build --workspace frontend",
+    "test": "npm run test --workspace backend && npm run test --workspace frontend",
+    "typecheck": "npm run typecheck --workspace backend && npm run typecheck --workspace frontend"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "prisma@6.19.3": true,
+    "esbuild@0.28.2": true,
+    "esbuild@0.25.12": true,
+    "@scarf/scarf": false
+  },
+  "overrides": {
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  }
+}
