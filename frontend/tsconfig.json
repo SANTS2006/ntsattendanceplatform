@@ -15,8 +15,7 @@
     "allowImportingTsExtensions": false,
     "resolveJsonModule": true,
     "types": ["node", "vite/client", "vitest/globals", "vite-plugin-pwa/react"],
-    "baseUrl": ".",
-    "paths": { "@/*": ["src/*"] }
+    "paths": { "@/*": ["./src/*"] }
   },
   "include": ["src", "vite.config.ts"]
 }
