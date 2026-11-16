@@ -53,30 +53,6 @@ export function Reveal({
   );
 }
 
-/** 0 → 1 progress of the page scroll. */
-export function usePageScroll() {
-  const [p, setP] = useState(0);
-  useEffect(() => {
-    let raf = 0;
-    const on = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const max = document.documentElement.scrollHeight - window.innerHeight;
-        setP(max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0);
-      });
-    };
-    on();
-    window.addEventListener('scroll', on, { passive: true });
-    window.addEventListener('resize', on);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('scroll', on);
-      window.removeEventListener('resize', on);
-    };
-  }, []);
-  return p;
-}
-
 /**
  * 0 → 1 progress of a tall section scrolling past a sticky viewport: 0 when its top reaches the
  * top of the screen, 1 when its bottom reaches the bottom.

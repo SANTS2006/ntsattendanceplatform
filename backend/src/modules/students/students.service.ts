@@ -92,8 +92,19 @@ export async function get(ctx: TenantContext, id: string) {
   return s;
 }
 
+/** A student's program must belong to the department chosen for them (programs without a department are allowed anywhere). */
+async function assertProgramInDepartment(ctx: TenantContext, programId: string | null | undefined, departmentId: string | null | undefined) {
+  if (!programId) return;
+  const program = await ctx.db.program.findFirst({ where: { id: programId }, select: { departmentId: true } });
+  if (!program) throw badRequest('The selected program was not found', 'VALIDATION_ERROR', { programId: ['Select a valid program'] });
+  if (departmentId && program.departmentId && program.departmentId !== departmentId) {
+    throw badRequest('The selected program is not part of the selected department', 'PROGRAM_DEPARTMENT_MISMATCH', { programId: ['Select a program from the chosen department'] });
+  }
+}
+
 export async function create(ctx: TenantContext, input: StudentInput, req: Request) {
   assertDeptWrite(ctx, 'students.create', input.departmentId);
+  await assertProgramInDepartment(ctx, input.programId, input.departmentId);
   const normalized = await normalizeNumber(ctx.organizationId, input.studentNumber);
   const exists = await ctx.db.student.findFirst({ where: { normalizedNumber: normalized }, select: { id: true } });
   if (exists) throw conflict('A student with this ID already exists', 'STUDENT_ID_TAKEN');
@@ -115,6 +126,9 @@ export async function create(ctx: TenantContext, input: StudentInput, req: Reque
 export async function update(ctx: TenantContext, id: string, input: Partial<StudentInput>, req: Request) {
   const existing = await get(ctx, id);
   assertDeptWrite(ctx, 'students.update', input.departmentId !== undefined ? input.departmentId : existing.departmentId);
+  if (input.programId !== undefined || input.departmentId !== undefined) {
+    await assertProgramInDepartment(ctx, input.programId !== undefined ? input.programId : existing.programId, input.departmentId !== undefined ? input.departmentId : existing.departmentId);
+  }
   const data: Prisma.StudentUncheckedUpdateInput = { ...input };
   if (input.studentNumber !== undefined) {
     const normalized = await normalizeNumber(ctx.organizationId, input.studentNumber);

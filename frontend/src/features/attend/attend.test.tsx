@@ -66,7 +66,7 @@ beforeEach(() => {
 describe('AttendPage', () => {
   it('shows a live character counter and verifies automatically when the ID is complete', async () => {
     validate.mockResolvedValue(session());
-    verifyStudent.mockResolvedValue({ attemptToken: 'attempt-2', student: { fullName: 'Aminata Sesay', studentId: '20240001', email: 'am***@x.test', program: 'BSc CS', level: 'Year 2' } });
+    verifyStudent.mockResolvedValue({ attemptToken: 'attempt-2', student: { fullName: 'Aminata Sesay', studentId: '20240001', email: 'aminata@x.test', program: 'BSc CS', level: 'Year 2' } });
     renderPage();
     const input = await screen.findByLabelText('Student ID');
     expect(screen.getByText('0/8')).toBeInTheDocument();

@@ -235,5 +235,5 @@ export type Member = {
   lecturer: { id: string } | null;
 };
 
-export type Role = { id: string; key: string; name: string; description: string | null; isSystem: boolean; permissions: string[]; memberCount: number };
+export type Role = { id: string; key: string; name: string; description: string | null; isSystem: boolean; permissionsCustomized?: boolean; permissions: string[]; memberCount: number };
 export type Permission = { id: string; key: string; group: string; description: string };

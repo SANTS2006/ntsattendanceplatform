@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { LogOut } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthProvider';
-import { initials } from '@/utils/format';
+import { displayName, initials } from '@/utils/format';
 
 /** Human-readable role of the signed-in user in the active organization. */
 export function useRoleLabel(context: 'org' | 'platform' = 'org') {
@@ -41,7 +41,7 @@ export function SidebarUserCard({ context = 'org', onNavigate }: { context?: 'or
         </Link>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-bold text-white">
-            {me?.user.firstName} {me?.user.lastName}
+            {displayName(me?.user.firstName, me?.user.lastName)}
           </p>
           <p className="truncate text-xs font-medium text-cyan-200/90">{role}</p>
         </div>

@@ -122,6 +122,15 @@ export async function uploadLogo(ctx: TenantContext, file: Buffer | undefined, r
   return { logoUrl: await imageStorage.signedUrl(key, 3600) };
 }
 
+export async function removeLogo(ctx: TenantContext, req: Request) {
+  const old = await prisma.organization.findUniqueOrThrow({ where: { id: ctx.organizationId }, select: { logoKey: true } });
+  if (!old.logoKey) return { logoUrl: null };
+  await prisma.organization.update({ where: { id: ctx.organizationId }, data: { logoKey: null } });
+  await imageStorage.delete(old.logoKey).catch(() => undefined);
+  await audit({ action: 'organization.logo_removed', targetType: 'Organization', targetId: ctx.organizationId, req });
+  return { logoUrl: null };
+}
+
 export async function getSettings(ctx: TenantContext) {
   return ctx.db.organizationSettings.findUniqueOrThrow({ where: { organizationId: ctx.organizationId } });
 }
@@ -181,10 +190,13 @@ export async function auditLogs(ctx: TenantContext, q: { page: number; pageSize:
   };
 }
 
-/** Adds permissions introduced in SYSTEM_ROLES to existing organizations' built-in roles (never removes). */
+/**
+ * Adds permissions introduced in SYSTEM_ROLES to existing organizations' built-in roles (never removes).
+ * Roles whose permissions the organization has edited are skipped, so removals stick.
+ */
 export async function syncSystemRolePermissions() {
   const perms = new Map((await prisma.permission.findMany({ select: { id: true, key: true } })).map((p) => [p.key, p.id]));
-  const roles = await prisma.role.findMany({ where: { isSystem: true }, select: { id: true, key: true, permissions: { select: { permissionId: true } } } });
+  const roles = await prisma.role.findMany({ where: { isSystem: true, permissionsCustomized: false }, select: { id: true, key: true, permissions: { select: { permissionId: true } } } });
   const rows: { roleId: string; permissionId: string }[] = [];
   for (const role of roles) {
     const def = SYSTEM_ROLES[role.key];

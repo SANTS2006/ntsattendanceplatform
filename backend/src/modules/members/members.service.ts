@@ -112,7 +112,7 @@ export async function listRoles(ctx: TenantContext) {
     orderBy: [{ isSystem: 'desc' }, { name: 'asc' }],
   });
   return roles.map((r) => ({
-    id: r.id, key: r.key, name: r.name, description: r.description, isSystem: r.isSystem,
+    id: r.id, key: r.key, name: r.name, description: r.description, isSystem: r.isSystem, permissionsCustomized: r.permissionsCustomized,
     permissions: r.permissions.map((p) => p.permission.key), memberCount: r._count.memberships,
   }));
 }
@@ -140,18 +140,37 @@ export async function createRole(ctx: TenantContext, input: { name: string; desc
 export async function updateRole(ctx: TenantContext, id: string, input: { name?: string; description?: string; permissions?: string[] }, req: Request) {
   const role = await ctx.db.role.findUnique({ where: { id }, include: { memberships: { select: { membership: { select: { userId: true } } } } } });
   if (!role) throw notFound('Role');
-  if (role.isSystem) throw forbidden('System roles cannot be modified; create a custom role instead', 'SYSTEM_ROLE');
+  // Built-in roles: permissions can be added or removed, but the name and description stay fixed
+  // (the app refers to them by key, e.g. the Lecturer role).
+  if (role.isSystem && ((input.name !== undefined && input.name !== role.name) || (input.description !== undefined && input.description !== (role.description ?? '')))) {
+    throw forbidden('Built-in roles cannot be renamed; you can change their permissions', 'SYSTEM_ROLE');
+  }
+  let added: string[] = [];
+  let removed: string[] = [];
   if (input.permissions) {
-    assertCanGrant(ctx, input.permissions);
-    const ids = await permissionIds(input.permissions);
+    const wanted = [...new Set(input.permissions)];
+    const current = await rolePermissionKeys(ctx, [id]);
+    added = wanted.filter((k) => !current.includes(k));
+    removed = current.filter((k) => !wanted.includes(k));
+    // Only permissions being added must be held by the editor; removing is always allowed for roles.manage.
+    assertCanGrant(ctx, added);
+    if (role.isSystem && role.key === 'admin' && removed.includes('roles.manage')) {
+      throw forbidden('The Administrator role must keep "Manage roles" so the organization cannot be locked out', 'SYSTEM_ROLE');
+    }
+    const ids = await permissionIds(wanted);
     await prisma.$transaction([
       prisma.rolePermission.deleteMany({ where: { roleId: id } }),
       prisma.rolePermission.createMany({ data: ids.map((permissionId) => ({ roleId: id, permissionId })) }),
     ]);
   }
-  const updated = await ctx.db.role.update({ where: { id }, data: { name: input.name, description: input.description } });
+  const updated = await ctx.db.role.update({
+    where: { id },
+    data: role.isSystem
+      ? { permissionsCustomized: input.permissions ? true : undefined }
+      : { name: input.name, description: input.description },
+  });
   await Promise.all(role.memberships.map((m) => invalidateMembership(ctx.organizationId, m.membership.userId)));
-  await audit({ action: 'role.updated', targetType: 'Role', targetId: id, metadata: { permissions: input.permissions ?? null }, req });
+  await audit({ action: 'role.updated', targetType: 'Role', targetId: id, metadata: { permissions: input.permissions ?? null, added, removed, system: role.isSystem }, req });
   return updated;
 }
 

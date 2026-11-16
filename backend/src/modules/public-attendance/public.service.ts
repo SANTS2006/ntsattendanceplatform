@@ -127,12 +127,6 @@ async function recentFailures(organizationId: string, sessionId: string, step: V
   });
 }
 
-const maskEmail = (email: string | null) => {
-  if (!email) return null;
-  const [user, domain] = email.split('@');
-  if (!domain) return null;
-  return `${user.slice(0, 2)}${'*'.repeat(Math.max(1, user.length - 2))}@${domain}`;
-};
 
 const contextLabel = (s: ResolvedSession) =>
   s.class ? `${s.class.course ? `${s.class.course.code} — ${s.class.course.title}` : s.class.name} (${s.class.code})` : (s.event?.name ?? s.title);
@@ -225,7 +219,7 @@ export async function verifyStudent(raw: string, attempt: string | undefined, st
     student: {
       fullName: student.fullName,
       studentId: student.studentNumber,
-      email: maskEmail(student.email),
+      email: student.email ?? null,
       program: student.program?.name ?? null,
       level: student.level?.name ?? null,
     },
@@ -336,7 +330,7 @@ async function successPayload(organizationId: string, recordId: string, confirma
     student: {
       fullName: rec.studentNameSnapshot,
       studentId: rec.studentNumberSnapshot,
-      email: maskEmail(rec.studentEmailSnapshot),
+      email: rec.studentEmailSnapshot ?? null,
       program: rec.programSnapshot,
       level: rec.levelSnapshot,
     },

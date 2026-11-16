@@ -14,7 +14,8 @@ import { Avatar, useRoleLabel } from '@/components/UserCard';
 import { CodeInput, PasswordInput, StrengthMeter } from '@/features/auth/fields';
 import { codeField, emailField, passwordField, phoneField, req, totpField } from '@/lib/validation';
 import { ThemeSegmented } from '@/theme/ThemeProvider';
-import { fmtDateTime } from '@/utils/format';
+import { displayName, fmtDateTime } from '@/utils/format';
+import { ImageViewer } from '@/components/ImageViewer';
 
 export function AccountPage() {
   const [sp, setSp] = useSearchParams();
@@ -43,6 +44,22 @@ function AvatarCard() {
   const [busy, setBusy] = useState<'upload' | 'remove' | null>(null);
   /** Local preview of the chosen image while it uploads. */
   const [preview, setPreview] = useState<string | null>(null);
+  const [viewing, setViewing] = useState(false);
+  const fullName = displayName(me?.user.firstName, me?.user.lastName);
+
+  const remove = async () => {
+    setBusy('remove');
+    try {
+      await del('/auth/me/avatar');
+      await reload();
+      setViewing(false);
+      toast.success('Profile picture removed');
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const upload = async (file: File) => {
     if (!/^image\/(jpeg|png|webp)$/.test(file.type)) return toast.error('Choose a JPEG, PNG or WebP image');
@@ -71,11 +88,19 @@ function AvatarCard() {
       <div className="bg-hero h-20" />
       <div className="-mt-12 flex flex-col items-center px-6 pb-6 text-center">
         <div className="relative">
-          {preview ? (
-            <img src={preview} alt="" className="h-24 w-24 rounded-full object-cover ring-4 ring-white" />
-          ) : (
-            <Avatar size="lg" className="!h-24 !w-24 !text-2xl ring-4 !ring-white" />
-          )}
+          <button
+            type="button"
+            onClick={() => (me?.user.avatarUrl || preview ? setViewing(true) : fileRef.current?.click())}
+            className="block rounded-full transition hover:brightness-95 focus-visible:ring-4 focus-visible:ring-brand-300 focus-visible:outline-none"
+            aria-label={me?.user.avatarUrl ? 'View profile picture' : 'Upload a profile picture'}
+            title={me?.user.avatarUrl ? 'View larger' : 'Upload a photo'}
+          >
+            {preview ? (
+              <img src={preview} alt="" className="h-24 w-24 rounded-full object-cover ring-4 ring-white" />
+            ) : (
+              <Avatar size="lg" className="!h-24 !w-24 cursor-zoom-in !text-2xl ring-4 !ring-white" />
+            )}
+          </button>
           {busy === 'upload' && (
             <span className="absolute inset-0 flex flex-col items-center justify-center rounded-full bg-navy-950/55 text-white backdrop-blur-[1px]" role="status" aria-live="polite">
               <span className="h-9 w-9 animate-spin rounded-full border-[3px] border-white/30 border-t-white" />
@@ -92,7 +117,7 @@ function AvatarCard() {
           </button>
           <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
         </div>
-        <p className="mt-3 text-lg font-extrabold text-navy-900">{me?.user.firstName} {me?.user.lastName}</p>
+        <p className="mt-3 text-lg font-extrabold text-navy-900">{fullName}</p>
         <p className="text-sm break-all text-slate-500">{me?.user.email}</p>
         <span className="mt-2 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">{role}</span>
         <div className="mt-5 flex w-full flex-col gap-2 sm:flex-row lg:flex-col xl:flex-row">
@@ -105,10 +130,7 @@ function AvatarCard() {
               variant="ghost"
               icon={<Trash2 className="h-4 w-4" />}
               loading={busy === 'remove'}
-              onClick={async () => {
-                setBusy('remove');
-                try { await del('/auth/me/avatar'); await reload(); toast.success('Profile picture removed'); } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(null); }
-              }}
+              onClick={remove}
             >
               Remove
             </Button>
@@ -120,6 +142,19 @@ function AvatarCard() {
           <ThemeSegmented />
         </div>
       </div>
+      <ImageViewer
+        open={viewing}
+        onClose={() => setViewing(false)}
+        src={preview ?? me?.user.avatarUrl}
+        alt={`${fullName} profile picture`}
+        title={fullName}
+        subtitle="Profile picture"
+        rounded
+        busy={busy}
+        changeLabel="Change photo"
+        onChange={(f) => void upload(f)}
+        onRemove={me?.user.avatarUrl ? () => void remove() : undefined}
+      />
     </Card>
   );
 }

@@ -6,7 +6,6 @@ import { useAuth } from '@/auth/AuthProvider';
 import { Logo } from '@/components/Logo';
 import { ThemeToggle } from '@/theme/ThemeProvider';
 import { InstallAppButton } from '@/pwa/InstallButtons';
-import { usePageScroll } from '@/features/marketing/motion';
 import { SITE } from '@/features/marketing/site';
 
 const links = [
@@ -21,7 +20,6 @@ const links = [
 export function PublicLayout() {
   const { status } = useAuth();
   const [open, setOpen] = useState(false);
-  const progress = usePageScroll();
   const loc = useLocation();
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
@@ -44,7 +42,6 @@ export function PublicLayout() {
           solid ? 'border-b border-slate-200/60 bg-white/80 shadow-[0_10px_30px_-20px_rgb(11_31_77/0.35)] backdrop-blur-xl' : 'bg-transparent',
         )}
       >
-        <div className="absolute inset-x-0 top-0 h-0.5 origin-left bg-gradient-to-r from-brand-500 via-cyan-brand to-check" style={{ transform: `scaleX(${progress})` }} aria-hidden="true" />
         <div className={clsx('flex w-full items-center justify-between px-4 transition-all duration-500 sm:px-6 lg:px-10', solid ? 'h-16' : 'h-20')}>
           <Link to="/" aria-label={`${SITE.product} home`}>
             <Logo light={!solid} />

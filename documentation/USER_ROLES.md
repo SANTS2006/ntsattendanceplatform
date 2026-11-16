@@ -21,7 +21,15 @@ The **owner** (creator) implicitly holds every permission and cannot be suspende
 | Lecturer | Runs attendance for assigned classes/events; sees only assigned classes and their records |
 | Viewer | Read-only students, academics and attendance |
 
-Owners (or members with `roles.manage`) can create **custom roles** from the catalogue below.
+Owners (or members with `roles.manage`) can create **custom roles** from the catalogue below, and can
+add or remove permissions on **any existing role**, including the built-in ones (Settings → Roles &
+permissions). Changes are saved to the database and apply immediately to everyone with that role
+**in that organization only**: every organization has its own copy of the built-in roles, and custom
+roles belong to the organization that created them, so other organizations never see or receive them.
+Safeguards: built-in roles keep their name and description; the Administrator role always keeps
+`roles.manage`; a non-owner can only add permissions they hold themselves. Once a built-in role's
+permissions are edited it is marked *customized* and the startup sync no longer adds default
+permissions to it (so removals stick; new permissions from later releases must be added by hand).
 Members can only grant permissions they hold organization-wide.
 
 | Group | Permissions |

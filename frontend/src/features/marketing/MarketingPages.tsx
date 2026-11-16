@@ -329,7 +329,7 @@ const STATS = [
 const ROLES = [
   { icon: Building2, title: 'Owners & administrators', points: ['Set student ID rules, location and selfie policies', 'Manage faculties, departments, programs, classes', 'Invite staff with custom roles and scopes', 'Organization-wide reports and audit log'] },
   { icon: GraduationCap, title: 'Lecturers', points: ['Account created for you — just set a password', 'Start a QR session in seconds, project it full screen', 'Watch check-ins live; correct records with a reason', 'Create your own organization with the same login'] },
-  { icon: Smartphone, title: 'Students & attendees', points: ['No account, no app — scan and go', 'Clear guidance if location or ID needs attention', 'Instant confirmation with a reference number', 'Privacy-minded: masked email, private selfies'] },
+  { icon: Smartphone, title: 'Students & attendees', points: ['No account, no app — scan and go', 'Clear guidance if location or ID needs attention', 'Instant confirmation with a reference number', 'Privacy-minded: private selfies, minimal data'] },
 ];
 
 const SECURITY = [
@@ -530,9 +530,9 @@ function SecuritySection() {
 
 function FaqSection({ items = FAQ }: { items?: readonly (readonly [string, string])[] }) {
   return (
-    <Section className="bg-slate-50">
+    <Section className="bg-slate-50 !px-3 sm:!px-4 lg:!px-6">
       <SectionHeading eyebrow="Questions" title={<>Frequently asked <span className="text-gradient">questions</span></>} />
-      <div className="mx-auto mt-12 max-w-3xl space-y-3">
+      <div className="mt-12 w-full space-y-3">
         {items.map(([q, a], i) => (
           <Reveal key={q} delay={i * 50}>
             <details className="group card overflow-hidden p-0 [&_summary::-webkit-details-marker]:hidden">
@@ -757,7 +757,7 @@ export function PricingPage() {
 export function AboutPage() {
   const values = [
     { icon: ShieldCheck, title: 'Integrity first', body: 'Attendance should mean presence. Every feature is judged by whether it makes records more trustworthy.' },
-    { icon: Users, title: 'Respect for students', body: 'Minimal data, masked emails, private selfies with retention limits — and clear messages when something needs attention.' },
+    { icon: Users, title: 'Respect for students', body: 'Minimal data, private selfies with retention limits — and clear messages when something needs attention.' },
     { icon: Zap, title: 'Fast for everyone', body: 'Seconds for students, one click for lecturers, minutes to set up for administrators.' },
     { icon: Layers, title: 'Built to scale', body: 'Multi-tenant from day one, so a single lecturer, a school or a multi-campus university all fit.' },
   ];

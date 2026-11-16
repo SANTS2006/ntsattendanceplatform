@@ -360,6 +360,8 @@ model Role {
   name           String
   description    String?
   isSystem       Boolean          @default(false)
+  /// Set when an owner/administrator edits a built-in role's permissions; startup sync then leaves it alone.
+  permissionsCustomized Boolean   @default(false)
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)

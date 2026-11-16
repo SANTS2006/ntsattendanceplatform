@@ -118,7 +118,7 @@ export function SuccessView({ r }: { r: SuccessResult }) {
           <div className="min-w-0">
             <p className="truncate font-semibold text-slate-900">{r.student.fullName}</p>
             <p className="text-sm text-slate-500">{r.student.studentId}</p>
-            {r.student.email && <p className="truncate text-xs text-slate-400">{r.student.email}</p>}
+            {r.student.email && <p className="text-xs break-all text-slate-400">{r.student.email}</p>}
           </div>
         </div>
         <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-4 text-sm">
@@ -426,7 +426,7 @@ export function AttendPage() {
               <dt className="sr-only">Name</dt>
               <dd className="font-semibold text-slate-900">{student.fullName}</dd>
               <dd className="text-slate-600">{student.studentId}</dd>
-              {student.email && <dd className="truncate text-slate-500">{student.email}</dd>}
+              {student.email && <dd className="break-all text-slate-500">{student.email}</dd>}
               <dd className="text-slate-500">{[student.program, student.level].filter(Boolean).join(' · ')}</dd>
             </dl>
           </div>

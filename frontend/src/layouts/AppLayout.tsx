@@ -13,6 +13,7 @@ import { SidebarUserCard } from '@/components/UserCard';
 import { NotificationsMenu, ProfileMenu } from '@/components/HeaderMenus';
 import { ThemeToggle } from '@/theme/ThemeProvider';
 import { useSupportUnread } from '@/features/support/SupportPages';
+import { displayName } from '@/utils/format';
 
 type NavItem = { to: string; label: string; icon: ReactNode; any?: string[]; end?: boolean; ownerOrAdmin?: boolean; badge?: 'support' };
 
@@ -210,7 +211,7 @@ export function AppLayout() {
             </Link>
             <div className="hidden min-w-0 lg:block">
               <p className="truncate text-sm font-bold text-navy-900">
-                {greeting}, {me?.user.firstName} <span aria-hidden>👋</span>
+                {greeting}, {displayName(me?.user.firstName, me?.user.lastName)}
               </p>
               <p className="text-xs text-slate-500">{new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long', timeZone: org?.timezone }).format(new Date())}</p>
             </div>

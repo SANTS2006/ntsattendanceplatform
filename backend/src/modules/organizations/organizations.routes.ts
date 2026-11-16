@@ -44,6 +44,10 @@ r(
   async (req, res) => ok(res, await svc.uploadLogo(tenantCtx(req), req.file?.buffer, req)),
 );
 
+r({ method: 'delete', path: '/current/logo', summary: 'Remove organization logo', tags: T, access: 'tenant', permission: 'organization.manage' }, async (req, res) =>
+  ok(res, await svc.removeLogo(tenantCtx(req), req), { message: 'Logo removed' }),
+);
+
 r({ method: 'get', path: '/current/overview', summary: 'Organization dashboard statistics', tags: T, access: 'tenant' }, async (req, res) =>
   ok(res, await svc.overview(tenantCtx(req))),
 );

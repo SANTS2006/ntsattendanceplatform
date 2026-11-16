@@ -13,7 +13,7 @@ import { LogoSpinner } from '@/components/brand';
 import { ThemeSegmented } from '@/theme/ThemeProvider';
 import { InstallAppMenuItem } from '@/pwa/InstallButtons';
 import type { AppNotification } from '@/types';
-import { fmtDateTime } from '@/utils/format';
+import { displayName, fmtDateTime } from '@/utils/format';
 
 /** Closes a popover on outside click or Escape. */
 function useDismiss(ref: RefObject<HTMLElement | null>, open: boolean, close: () => void) {
@@ -90,7 +90,7 @@ export function ProfileMenu({ context = 'org' }: { context?: 'org' | 'platform' 
               <div className="flex items-center gap-3">
                 <Avatar size="lg" />
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-bold">{me?.user.firstName} {me?.user.lastName}</p>
+                  <p className="truncate text-sm font-bold">{displayName(me?.user.firstName, me?.user.lastName)}</p>
                   <p className="flex items-center gap-1 truncate text-xs text-white/75"><Mail className="h-3 w-3 shrink-0" /> <span className="truncate">{me?.user.email}</span></p>
                   <span className="mt-1.5 inline-block rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-semibold text-cyan-100 ring-1 ring-white/20">{role}</span>
                 </div>

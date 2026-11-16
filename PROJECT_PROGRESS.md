@@ -36,6 +36,7 @@ Details: [documentation/ARCHITECTURE.md](documentation/ARCHITECTURE.md).
 | 21 Full-width pages for every role (app and platform consoles) | ✅ |
 | 22 Lecturer accounts created automatically (setup email, resend, import) and one account across many organizations (own organization + lecturer roles, grouped switcher) | ✅ code + 5 integration tests |
 | 23 Public website redesign: three.js 3D hero (lazy-loaded), scroll-driven check-in story, reveal/tilt/parallax animations, new How it works page, rebuilt Features/Pricing/About/Contact/404, full footer | ✅ checked in the browser (desktop, phone, light/dark) |
+| 24 Requested changes (2026-11-16): full student email on the attendance pages, responsive full-width live session page, student form (email/department/program/level required, programs filtered by department, server check), no scroll bar on the website, full-width FAQ, editable permissions on existing roles (migration `role_permissions_customized`), navbar name with middle initial, organization logo card matching the profile card, full-screen image viewer with change/remove | ✅ type checks, 32 frontend tests, 6 new integration tests (`roles-students.test.ts`, incl. role changes staying in their own organization); logged-in pages not checked in a browser |
 | 20 GPS geofencing accuracy fix: venue capture gated by accuracy, manual map placement (Leaflet/OSM), multi-reading acquisition (best fresh reading, no averaging), server freshness → accuracy → distance checks, verified location carried to submit, configurable location policy with warnings, venue audit | ✅ code + automated tests; **not yet validated on real devices in a classroom** |
 
 ## Project structure
@@ -52,7 +53,7 @@ documentation/  Architecture, API, security, database, tenant isolation, deploym
 `init`, `tenant_integrity` (RLS, triggers, CHECKs, append-only audit), `tenant_error_codes`,
 `email_code_and_google` (PendingRegistration, nullable password, googleId, avatarUrl),
 `support_feedback_backups_imports` (EmailChangeRequest, SupportTicket/Message, Feedback, Backup, import resource, avatarKey; RLS for tickets/feedback),
-`terms_acceptance`, `location_policy` (venue source/accuracy/captured-at on classes and events; session location snapshot; venue-capture, reading-age, timeout and sample-count settings).
+`terms_acceptance`, `location_policy` (venue source/accuracy/captured-at on classes and events; session location snapshot; venue-capture, reading-age, timeout and sample-count settings), `role_permissions_customized` (flag on roles whose permissions were edited).
 
 ## API
 

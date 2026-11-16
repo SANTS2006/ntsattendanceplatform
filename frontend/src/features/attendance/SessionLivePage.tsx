@@ -132,21 +132,22 @@ export function SessionLivePage() {
   const st = s.stats!;
 
   const qrBlock = qr && active && s.canManage && (
-    <div className={clsx('flex flex-col items-center', fullscreen && 'fixed inset-0 z-50 justify-center bg-white p-6')}>
+    <div className={clsx('flex w-full flex-col items-center', fullscreen && 'fixed inset-0 z-50 justify-center overflow-y-auto bg-white p-4 sm:p-6')}>
       {fullscreen && (
         <div className="mb-6 text-center">
           <p className="text-sm text-slate-500">{org?.name}</p>
-          <h2 className="text-3xl font-semibold text-slate-900">{s.title}</h2>
+          <h2 className="text-2xl font-semibold break-words text-slate-900 sm:text-3xl">{s.title}</h2>
         </div>
       )}
-      <div className="rounded-2xl border border-slate-200 bg-white p-4">
-        <QRCodeSVG value={qr.url} size={fullscreen ? Math.min(window.innerWidth, window.innerHeight) * 0.62 : 260} level="M" marginSize={2} aria-label="Attendance QR code" />
+      {/* The QR scales with its container (and with the screen in full-screen mode) instead of a fixed pixel size. */}
+      <div className={clsx('w-full rounded-2xl border border-slate-200 bg-white p-3 sm:p-4', fullscreen ? 'max-w-[min(88vw,68vh)]' : 'max-w-[340px]')}>
+        <QRCodeSVG value={qr.url} size={512} style={{ width: '100%', height: 'auto', display: 'block' }} level="M" marginSize={2} aria-label="Attendance QR code" />
       </div>
       <p className={clsx('mt-4 flex items-center gap-2 font-medium tabular-nums', fullscreen ? 'text-3xl' : 'text-lg', countdown.left < 60_000 ? 'text-rose-600' : 'text-slate-800')}>
         <Clock className={fullscreen ? 'h-7 w-7' : 'h-5 w-5'} /> {countdown.label}
       </p>
       {fullscreen && <p className="mt-2 text-2xl font-semibold text-emerald-700">{st.present} present</p>}
-      <div className="mt-3 flex flex-wrap justify-center gap-2">
+      <div className="mt-3 flex w-full flex-wrap justify-center gap-2">
         <Button
           size="sm"
           variant="secondary"
@@ -171,12 +172,12 @@ export function SessionLivePage() {
           </>
         )}
       </div>
-      {qr.rotationSeconds && <p className="mt-2 text-xs text-slate-400">The code changes every {qr.rotationSeconds} seconds.</p>}
+      {qr.rotationSeconds && <p className="mt-2 text-center text-xs text-slate-400">The code changes every {qr.rotationSeconds} seconds.</p>}
     </div>
   );
 
   return (
-    <div>
+    <div className="w-full min-w-0">
       <PageHeader
         title={s.title}
         description={`${s.class ? `${s.class.course?.code ?? ''} ${s.class.course?.title ?? ''} · ${s.class.name}` : s.event?.name ?? ''} · started ${fmtDateTime(s.startsAt, org?.timezone)}`}
@@ -198,15 +199,15 @@ export function SessionLivePage() {
         }
       />
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card title="QR code">
+      <div className="grid w-full gap-4 sm:gap-6 lg:grid-cols-[minmax(300px,400px)_minmax(0,1fr)] 2xl:grid-cols-[440px_minmax(0,1fr)]">
+        <Card title="QR code" className="min-w-0">
           {qrBlock || (
             <EmptyState
               title={s.effectiveStatus === 'ACTIVE' && countdown.left > 0 ? (s.canManage ? 'Generating QR code…' : 'Only the session owner can display the QR code') : `This session is ${(countdown.left === 0 && s.effectiveStatus === 'ACTIVE' ? 'expired' : s.effectiveStatus).toLowerCase()}`}
               description={s.effectiveStatus !== 'ACTIVE' || countdown.left === 0 ? 'Students can no longer check in. Start a replacement session if needed.' : undefined}
             />
           )}
-          <dl className="mt-4 grid grid-cols-2 gap-2 border-t border-slate-100 pt-4 text-xs text-slate-500">
+          <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-4 text-xs text-slate-500">
             <div>Expires<dd className="font-medium text-slate-800">{fmtDateTime(s.expiresAt, org?.timezone)}</dd></div>
             <div>Location<dd className="font-medium text-slate-800">{s.locationRequired ? `Within ${s.radiusM} m` : 'Not required'}</dd></div>
             <div>Selfie<dd className="font-medium text-slate-800">{s.selfieRequired ? 'Required' : 'Optional'}</dd></div>
@@ -214,8 +215,8 @@ export function SessionLivePage() {
           </dl>
         </Card>
 
-        <div className="space-y-6 lg:col-span-2">
-          <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <div className="min-w-0 space-y-4 sm:space-y-6">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
             <StatCard label="Present" value={st.present} tone="green" hint={st.late ? `${st.late} late` : undefined} />
             <StatCard label="Absent" value={st.absent} tone="rose" hint={`of ${st.expected} expected`} />
             <StatCard label="Attendance" value={st.attendanceRate == null ? '—' : `${st.attendanceRate}%`} tone="brand" />
@@ -225,11 +226,11 @@ export function SessionLivePage() {
             {feed.length === 0 ? (
               <p className="text-sm text-slate-500">New check-ins will appear here instantly.</p>
             ) : (
-              <ul className="max-h-48 space-y-2 overflow-y-auto">
+              <ul className="grid max-h-80 gap-2 overflow-y-auto sm:grid-cols-2 2xl:grid-cols-3">
                 {feed.map((f) => (
-                  <li key={f.id} className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 text-sm">
-                    <span className="font-medium text-emerald-900">{f.name}</span>
-                    <span className="text-xs text-emerald-700">{f.flagged ? '⚠ review · ' : ''}{new Date(f.at).toLocaleTimeString()}</span>
+                  <li key={f.id} className="flex min-w-0 items-center justify-between gap-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm">
+                    <span className="min-w-0 truncate font-medium text-emerald-900">{f.name}</span>
+                    <span className="shrink-0 text-xs text-emerald-700">{f.flagged ? '⚠ review · ' : ''}{new Date(f.at).toLocaleTimeString()}</span>
                   </li>
                 ))}
               </ul>
@@ -238,13 +239,13 @@ export function SessionLivePage() {
         </div>
       </div>
 
-      <div className="mt-6">
+      <div className="mt-4 min-w-0 sm:mt-6">
         <Tabs tabs={[{ key: 'records', label: `Present (${st.totalSubmissions})` }, { key: 'absent', label: `Absent (${st.absent})` }]} active={tab} onChange={setTab} />
         <Card
           padded={false}
           title={tab === 'records' ? 'Attendance records' : 'Not yet checked in'}
           actions={
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {can('attendance.correct') && <Button size="sm" variant="secondary" onClick={() => setManualOpen(true)} icon={<UserPlus className="h-4 w-4" />}>Manual entry</Button>}
               {(can('attendance.export') || can('reports.export')) && (
                 <>

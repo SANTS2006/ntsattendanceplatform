@@ -32,7 +32,7 @@ Error:
 | Group | Main endpoints |
 |---|---|
 | Auth | `GET /auth/config`, `POST/DELETE /auth/me/avatar`, `POST /auth/email-change`, `/auth/email-change/resend`, `/auth/email-change/verify`, `DELETE /auth/email-change`, `POST /auth/register`, `/auth/register/verify`, `/auth/register/resend`, `/auth/login`, `/auth/google`, `/auth/mfa/verify`, `/auth/refresh`, `/auth/logout`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/change-password`, `GET/PATCH /auth/me`, `/auth/switch-organization`, `/auth/sessions`, `/auth/mfa/setup|enable|disable` |
-| Organizations | `POST /organizations`, `GET/PATCH /organizations/current`, `POST /organizations/current/logo`, `GET /organizations/current/overview`, `GET/PATCH /organizations/settings`, `GET /organizations/audit-logs` |
+| Organizations | `POST /organizations`, `GET/PATCH /organizations/current`, `POST/DELETE /organizations/current/logo`, `GET /organizations/current/overview`, `GET/PATCH /organizations/settings`, `GET /organizations/audit-logs` |
 | Members & roles | `/organizations/members`, `/organizations/members/:id/roles`, `/organizations/invitations`, `/invitations/lookup`, `/invitations/accept`, `/roles`, `/permissions` |
 | Students | `/students` (CRUD, search, filters), `/students/:id/attendance`, `/students/import` (upload), `/students/import/:id/preview` (`table: true` for row-by-row status), `/students/import/:id/commit` |
 | Academics | `/faculties`, `/departments`, `/programs`, `/levels`, `/academic-years`, `/semesters`, `/courses`, `/classes`, `/classes/:id/lecturers`, `/classes/:id/students`, `/enrollments` |

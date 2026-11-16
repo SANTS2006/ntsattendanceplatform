@@ -19,7 +19,7 @@ const STATUSES = ['ACTIVE', 'INACTIVE', 'GRADUATED', 'SUSPENDED'].map((s) => ({ 
 
 function useLookups() {
   return {
-    programs: useOptions<Ref & { code: string }>('/programs', (p) => `${p.code} · ${p.name}`),
+    programs: useOptions<Ref & { code: string; departmentId: string | null }>('/programs', (p) => `${p.code} · ${p.name}`),
     departments: useOptions<Ref>('/departments', (d) => d.name),
     levels: useOptions<Ref>('/levels', (l) => l.name),
     years: useOptions<Ref & { isCurrent: boolean }>('/academic-years', (y) => `${y.name}${y.isCurrent ? ' (current)' : ''}`),
@@ -83,6 +83,12 @@ export function StudentForm({ open, onClose, student }: { open: boolean; onClose
     },
   });
   const err = (k: string) => form.formState.errors[k]?.message as string | undefined;
+  // Programs are chosen after the department and only those under it are offered.
+  const departmentId = form.watch('departmentId') ?? '';
+  const programOptions = programs.rows
+    .filter((p) => p.departmentId === departmentId)
+    .map((p) => ({ value: p.id, label: `${p.code} · ${p.name}` }));
+  const departmentField = form.register('departmentId', { required: 'Select a department' });
   return (
     <Modal
       open={open}
@@ -102,11 +108,31 @@ export function StudentForm({ open, onClose, student }: { open: boolean; onClose
         <Select label="Status" options={STATUSES} {...form.register('status')} />
         <Input label="First name *" autoComplete="off" error={err('firstName')} {...form.register('firstName', { setValueAs: trim, required: 'Enter your first name', maxLength: { value: 80, message: 'First name must be at most 80 characters' } })} />
         <Input label="Last name *" autoComplete="off" error={err('lastName')} {...form.register('lastName', { setValueAs: trim, required: 'Enter your last name', maxLength: { value: 80, message: 'Last name must be at most 80 characters' } })} />
-        <Input label="Email address" type="email" error={err('email')} {...form.register('email', { setValueAs: trim, pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/, message: 'Enter a valid email address' }, maxLength: { value: 254, message: 'Email is too long' } })} />
+        <Input label="Email address *" type="email" error={err('email')} {...form.register('email', { setValueAs: trim, required: 'Enter the student email address', pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/, message: 'Enter a valid email address' }, maxLength: { value: 254, message: 'Email is too long' } })} />
         <Input label="Phone number" type="tel" error={err('phone')} {...form.register('phone', { setValueAs: trim, pattern: { value: /^\+?[0-9 ()-]{6,30}$/, message: 'Enter a valid phone number' } })} />
-        <Select label="Program" options={programs.options} placeholder="Select your program" {...form.register('programId')} />
-        <Select label="Department" options={departments.options} placeholder="Select your department" {...form.register('departmentId')} />
-        <Select label="Academic level" options={levels.options} placeholder="Select your academic level" {...form.register('levelId')} />
+        <Select
+          label="Department *"
+          options={departments.options}
+          placeholder="Select your department"
+          error={err('departmentId')}
+          {...departmentField}
+          onChange={(e) => {
+            void departmentField.onChange(e);
+            // A program from the previous department no longer applies.
+            const keep = programs.rows.some((p) => p.id === form.getValues('programId') && p.departmentId === e.target.value);
+            if (!keep) form.setValue('programId', '');
+          }}
+        />
+        <Select
+          label="Program *"
+          options={programOptions}
+          placeholder={!departmentId ? 'Select a department first' : programOptions.length ? 'Select your program' : 'No programs in this department'}
+          disabled={!departmentId || programOptions.length === 0}
+          hint={departmentId && !programs.loading && programOptions.length === 0 ? 'Add programs to this department under Academic structure.' : undefined}
+          error={err('programId')}
+          {...form.register('programId', { required: 'Select a program' })}
+        />
+        <Select label="Academic level *" options={levels.options} placeholder="Select your academic level" error={err('levelId')} {...form.register('levelId', { required: 'Select an academic level' })} />
         {yearOptions.length ? (
           <Select label="Academic year" options={yearOptions} placeholder="Select your academic year" error={err('academicYear')} {...form.register('academicYear')} />
         ) : (

@@ -24,6 +24,15 @@ export function fmtBytes(n: number) {
   return `${v.toFixed(1)} ${u[i]}`;
 }
 export const humanize = (s: string) => s.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+/**
+ * "Newton Tamba" + "Sam" → "Newton T. Sam": the first given name in full, any middle names as an
+ * initial with a dot, then the last name.
+ */
+export function displayName(first?: string | null, last?: string | null) {
+  const given = (first ?? '').trim().split(/\s+/).filter(Boolean);
+  const middles = given.slice(1).map((m) => `${m[0].toUpperCase()}.`);
+  return [given[0], ...middles, (last ?? '').trim()].filter(Boolean).join(' ');
+}
 export const initials = (first?: string, last?: string) => `${first?.[0] ?? ''}${last?.[0] ?? ''}`.toUpperCase();
 
 export const ORG_TYPES = [

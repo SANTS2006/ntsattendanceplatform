@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
@@ -6,14 +6,16 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { emailField, opt, phoneField, req, urlField } from '@/lib/validation';
 import toast from 'react-hot-toast';
-import { ImageUp, Mail, Plus, Shield, Trash2 } from 'lucide-react';
+import clsx from 'clsx';
+import { Camera, Mail, Plus, RotateCw, Shield, Trash2 } from 'lucide-react';
 import { del, errorMessage, get, http, patch, post, put } from '@/api/client';
 import { useAuth } from '@/auth/AuthProvider';
 import { Badge, Button, Card, ConfirmDialog, DataTable, EmptyState, Input, Modal, PageHeader, Pagination, SearchInput, Select, Spinner, Tabs, Textarea, Toggle } from '@/components/ui';
 import { usePaged } from '@/hooks/usePaged';
 import { useOptions } from '@/hooks/useOptions';
 import type { Member, OrgSettings, Permission, Ref, Role } from '@/types';
-import { fmtDateTime, timeZones } from '@/utils/format';
+import { ORG_TYPES, fmtDateTime, timeZones } from '@/utils/format';
+import { ImageViewer } from '@/components/ImageViewer';
 
 export function SettingsPage() {
   const { can } = useAuth();
@@ -59,6 +61,138 @@ const NUM_RANGE = (v: unknown, min: number, max: number, label: string, optional
 };
 const firstError = (e: Record<string, string | undefined>) => Object.values(e).find(Boolean);
 
+/** Organization logo card — same layout as the profile picture card on the Account page. */
+function LogoCard() {
+  const { org, reload, can } = useAuth();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState<'upload' | 'remove' | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [viewing, setViewing] = useState(false);
+  const canEdit = can('organization.manage');
+  const src = preview ?? org?.logoUrl ?? null;
+  const typeLabel = ORG_TYPES.find((t) => t.value === org?.type)?.label;
+
+  const upload = async (file: File) => {
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) return toast.error('Choose a PNG, JPEG or WebP image');
+    if (file.size > 5 * 1024 * 1024) return toast.error('The logo must be 5 MB or smaller');
+    const fd = new FormData();
+    fd.append('file', file);
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+    setBusy('upload');
+    try {
+      await http.post('/organizations/current/logo', fd);
+      await reload();
+      toast.success('Logo updated');
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(null);
+      setPreview(null);
+      URL.revokeObjectURL(url);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+  const remove = async () => {
+    setBusy('remove');
+    try {
+      await del('/organizations/current/logo');
+      await reload();
+      setViewing(false);
+      toast.success('Logo removed');
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Card className="h-fit overflow-hidden" padded={false}>
+      <div className="bg-hero h-20" />
+      <div className="-mt-12 flex flex-col items-center px-6 pb-6 text-center">
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => (src ? setViewing(true) : canEdit && fileRef.current?.click())}
+            className="block rounded-2xl transition hover:brightness-95 focus-visible:ring-4 focus-visible:ring-brand-300 focus-visible:outline-none"
+            aria-label={src ? 'View organization logo' : 'Upload a logo'}
+            title={src ? 'View larger' : 'Upload a logo'}
+          >
+            {src ? (
+              <img src={src} alt="" className="h-24 w-24 cursor-zoom-in rounded-2xl bg-white object-contain p-1.5 shadow-sm ring-4 ring-white" />
+            ) : (
+              <span className="flex h-24 w-24 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 via-cyan-brand to-check text-3xl font-bold text-white ring-4 ring-white">
+                {org?.name?.[0]?.toUpperCase()}
+              </span>
+            )}
+          </button>
+          {busy === 'upload' && (
+            <span className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl bg-navy-950/55 text-white backdrop-blur-[1px]" role="status" aria-live="polite">
+              <span className="h-9 w-9 animate-spin rounded-full border-[3px] border-white/30 border-t-white" />
+              <span className="mt-1 text-[10px] font-bold tracking-wider uppercase">Uploading</span>
+            </span>
+          )}
+          {canEdit && (
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={!!busy}
+              className="absolute -right-2 -bottom-2 flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-brand-600 to-cyan-brand text-white shadow-lg ring-4 ring-white transition hover:brightness-110 disabled:opacity-60"
+              aria-label="Upload a new logo"
+            >
+              {busy === 'upload' ? <RotateCw className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+            </button>
+          )}
+          <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
+        </div>
+        <p className="mt-3 text-lg font-extrabold break-words text-navy-900">{org?.name}</p>
+        {org?.officialEmail && <p className="text-sm break-all text-slate-500">{org.officialEmail}</p>}
+        {typeLabel && <span className="mt-2 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">{typeLabel}</span>}
+        {canEdit && (
+          <>
+            <div className="mt-5 flex w-full flex-col gap-2 sm:flex-row lg:flex-col xl:flex-row">
+              <Button className="flex-1" variant="secondary" icon={<Camera className="h-4 w-4" />} onClick={() => fileRef.current?.click()} loading={busy === 'upload'}>
+                {org?.logoUrl ? 'Change logo' : 'Upload logo'}
+              </Button>
+              {org?.logoUrl && (
+                <Button className="flex-1" variant="ghost" icon={<Trash2 className="h-4 w-4" />} loading={busy === 'remove'} onClick={remove}>
+                  Remove
+                </Button>
+              )}
+            </div>
+            <p className="mt-3 text-xs text-slate-400">PNG, JPEG or WebP · up to 5 MB</p>
+          </>
+        )}
+        <div className="mt-5 w-full space-y-2 border-t border-slate-100 pt-4 text-left text-sm">
+          <p className="mb-2 text-xs font-bold tracking-wider text-slate-400 uppercase">At a glance</p>
+          {[
+            ['Country', org?.country],
+            ['Time zone', org?.timezone],
+            ['Website', org?.website],
+          ].map(([k, v]) => (
+            <div key={k} className="flex justify-between gap-3">
+              <span className="text-slate-500">{k}</span>
+              <span className="min-w-0 truncate text-right font-medium text-navy-900" title={v ?? undefined}>{v || '—'}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <ImageViewer
+        open={viewing}
+        onClose={() => setViewing(false)}
+        src={src}
+        alt={`${org?.name ?? 'Organization'} logo`}
+        title={org?.name ?? 'Organization'}
+        subtitle="Organization logo"
+        busy={busy}
+        changeLabel="Change logo"
+        onChange={canEdit ? (f) => void upload(f) : undefined}
+        onRemove={canEdit && org?.logoUrl ? () => void remove() : undefined}
+      />
+    </Card>
+  );
+}
+
 function ProfileTab() {
   const { org, reload } = useAuth();
   const form = useForm<z.infer<typeof orgSchema>>({ resolver: zodResolver(orgSchema), values: { name: org?.name ?? '', officialEmail: org?.officialEmail ?? '', contactNumber: org?.contactNumber ?? '', country: org?.country ?? '', address: org?.address ?? '', timezone: org?.timezone ?? 'UTC', website: org?.website ?? '', description: org?.description ?? '' } });
@@ -68,32 +202,10 @@ function ProfileTab() {
     onError: (e) => toast.error(errorMessage(e)),
   });
   const fe = form.formState.errors;
-  const upload = async (file: File) => {
-    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) return toast.error('Choose a PNG, JPEG or WebP image');
-    if (file.size > 5 * 1024 * 1024) return toast.error('The logo must be 5 MB or smaller');
-    const fd = new FormData();
-    fd.append('file', file);
-    try {
-      await http.post('/organizations/current/logo', fd);
-      toast.success('Logo updated');
-      await reload();
-    } catch (e) {
-      toast.error(errorMessage(e));
-    }
-  };
   return (
-    <div className="grid gap-6 lg:grid-cols-3">
-      <Card title="Logo">
-        <div className="flex flex-col items-center gap-4">
-          {org?.logoUrl ? <img src={org.logoUrl} alt="Organization logo" className="h-32 w-32 rounded-xl border border-slate-200 object-contain" /> : <div className="flex h-32 w-32 items-center justify-center rounded-xl bg-brand-50 text-4xl font-semibold text-brand-700">{org?.name[0]}</div>}
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-50">
-            <ImageUp className="h-4 w-4" /> Upload logo
-            <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
-          </label>
-          <p className="text-xs text-slate-500">PNG, JPEG or WebP up to 5 MB.</p>
-        </div>
-      </Card>
-      <Card title="Profile" className="lg:col-span-2">
+    <div className="grid gap-6 lg:grid-cols-[20rem_1fr]">
+      <LogoCard />
+      <Card title="Profile" className="min-w-0">
         <form noValidate className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit((v) => save.mutate(Object.fromEntries(Object.entries(v).map(([k, x]) => [k, x || undefined]))))}>
           <div className="sm:col-span-2"><Input label="Organization name *" error={fe.name?.message} {...form.register('name')} /></div>
           <Input label="Official email *" type="email" error={fe.officialEmail?.message} {...form.register('officialEmail')} />
@@ -364,7 +476,7 @@ function MembersTab() {
 }
 
 function RolesTab() {
-  const { can } = useAuth();
+  const { can, reload } = useAuth();
   const qc = useQueryClient();
   const roles = useQuery({ queryKey: ['roles'], queryFn: () => get<Role[]>('/roles') });
   const perms = useQuery({ queryKey: ['permissions'], queryFn: () => get<Permission[]>('/permissions') });
@@ -385,8 +497,18 @@ function RolesTab() {
     setSelected(new Set(r === 'new' ? [] : r.permissions));
   };
   const save = useMutation({
-    mutationFn: () => (editing === 'new' ? post('/roles', { name, description, permissions: [...selected] }) : patch(`/roles/${(editing as Role).id}`, { name, description, permissions: [...selected] })),
-    onSuccess: () => { toast.success('Role saved'); setEditing(null); qc.invalidateQueries({ queryKey: ['roles'] }); },
+    mutationFn: () => {
+      if (editing === 'new') return post('/roles', { name, description, permissions: [...selected] });
+      const r = editing as Role;
+      // Built-in roles keep their name; only their permissions change.
+      return patch(`/roles/${r.id}`, r.isSystem ? { permissions: [...selected] } : { name, description, permissions: [...selected] });
+    },
+    onSuccess: () => {
+      toast.success('Role saved — permissions apply immediately');
+      setEditing(null);
+      qc.invalidateQueries({ queryKey: ['roles'] });
+      void reload(); // your own permissions may have changed
+    },
     onError: (e) => toast.error(errorMessage(e)),
   });
   const remove = useMutation({
@@ -394,7 +516,18 @@ function RolesTab() {
     onSuccess: () => { toast.success('Role deleted'); setDeleting(null); qc.invalidateQueries({ queryKey: ['roles'] }); },
     onError: (e) => toast.error(errorMessage(e)),
   });
-  const readOnly = editing !== 'new' && editing !== null && editing.isSystem;
+  const readOnly = !can('roles.manage');
+  const isSystem = editing !== 'new' && editing !== null && editing.isSystem;
+  const isAdminRole = isSystem && (editing as Role).key === 'admin';
+  const toggle = (key: string) => setSelected((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  const setGroup = (ps: Permission[], on: boolean) => setSelected((s) => {
+    const n = new Set(s);
+    for (const p of ps) {
+      if (isAdminRole && p.key === 'roles.manage') continue;
+      if (on) n.add(p.key); else n.delete(p.key);
+    }
+    return n;
+  });
   const [roleTried, setRoleTried] = useState(false);
   const roleErr = {
     name: !name.trim() ? 'Enter your role name' : name.trim().length > 60 ? 'Role name must be at most 60 characters' : (roles.data ?? []).some((r) => r.name.toLowerCase() === name.trim().toLowerCase() && (editing === 'new' || r.id !== editing?.id)) ? 'A role with this name already exists' : undefined,
@@ -407,25 +540,46 @@ function RolesTab() {
       {roles.isLoading ? <Spinner /> : (
         <DataTable rows={roles.data} onRowClick={open} columns={[
           { key: 'n', header: 'Role', render: (r) => <div><p className="font-medium">{r.name} {r.isSystem && <Shield className="ml-1 inline h-3.5 w-3.5 text-slate-400" aria-label="System role" />}</p><p className="text-xs text-slate-500">{r.description}</p></div> },
-          { key: 'p', header: 'Permissions', render: (r) => r.permissions.length },
+          { key: 'p', header: 'Permissions', render: (r) => <span>{r.permissions.length}{r.isSystem && r.permissionsCustomized && <span className="ml-2"><Badge>Customized</Badge></span>}</span> },
           { key: 'm', header: 'Members', render: (r) => r.memberCount },
           { key: 'x', header: '', render: (r) => !r.isSystem && can('roles.manage') && <Button size="sm" variant="ghost" aria-label="Delete role" icon={<Trash2 className="h-4 w-4 text-rose-500" />} onClick={(e) => { e.stopPropagation(); setDeleting(r); }} /> },
         ]} />
       )}
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing === 'new' ? 'New custom role' : readOnly ? `${(editing as Role)?.name} (system role)` : 'Edit role'} size="lg"
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing === 'new' ? 'New custom role' : isSystem ? `${(editing as Role)?.name} (built-in role)` : 'Edit role'} size="lg"
         footer={!readOnly && can('roles.manage') && <Button loading={save.isPending} onClick={submitRole}>Save role</Button>}>
         <div className="space-y-4">
-          {readOnly && <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">System roles cannot be edited. Create a custom role to tailor permissions.</p>}
-          <Input label="Role name *" maxLength={60} error={roleTried ? roleErr.name : undefined} value={name} onChange={(e) => setName(e.target.value)} disabled={readOnly} />
-          <Input label="Description" maxLength={300} error={roleTried ? roleErr.description : undefined} value={description} onChange={(e) => setDescription(e.target.value)} disabled={readOnly} />
+          {readOnly && <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">You can view this role. Only the owner and administrators can change permissions.</p>}
+          {!readOnly && editing !== 'new' && (
+            <p className="rounded-lg bg-brand-50 p-3 text-sm text-brand-800">
+              Tick or untick permissions and save. Changes are saved to your organization and apply immediately to the {(editing as Role)?.memberCount ?? 0} member(s) with this role.
+              {isSystem && ' Built-in roles keep their name; only their permissions can change.'}
+            </p>
+          )}
+          <Input label="Role name *" maxLength={60} error={roleTried ? roleErr.name : undefined} value={name} onChange={(e) => setName(e.target.value)} disabled={readOnly || isSystem} />
+          <Input label="Description" maxLength={300} error={roleTried ? roleErr.description : undefined} value={description} onChange={(e) => setDescription(e.target.value)} disabled={readOnly || isSystem} />
           {roleTried && roleErr.perms && !readOnly && <p className="text-sm font-medium text-rose-600">{roleErr.perms}</p>}
           {groups.map(([g, ps]) => (
             <fieldset key={g} disabled={readOnly}>
-              <legend className="mb-2 text-sm font-semibold text-slate-700">{g}</legend>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <legend className="text-sm font-semibold text-slate-700">{g}</legend>
+                {!readOnly && (
+                  <span className="flex gap-1 text-xs">
+                    <button type="button" className="rounded px-2 py-1 font-semibold text-brand-700 hover:bg-brand-50" onClick={() => setGroup(ps, true)}>Select all</button>
+                    <button type="button" className="rounded px-2 py-1 font-semibold text-slate-500 hover:bg-slate-100" onClick={() => setGroup(ps, false)}>Clear</button>
+                  </span>
+                )}
+              </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 {ps.map((p) => (
-                  <label key={p.key} className="flex items-start gap-2 rounded-lg border border-slate-200 p-2 text-sm">
-                    <input type="checkbox" className="mt-0.5 rounded border-slate-300" checked={selected.has(p.key)} onChange={() => setSelected((s) => { const n = new Set(s); if (n.has(p.key)) n.delete(p.key); else n.add(p.key); return n; })} />
+                  <label key={p.key} className={clsx('flex items-start gap-2 rounded-lg border p-2 text-sm transition', selected.has(p.key) ? 'border-brand-300 bg-brand-50/60' : 'border-slate-200')}>
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 rounded border-slate-300"
+                      checked={selected.has(p.key)}
+                      disabled={isAdminRole && p.key === 'roles.manage'}
+                      title={isAdminRole && p.key === 'roles.manage' ? 'The Administrator role always keeps this permission' : undefined}
+                      onChange={() => toggle(p.key)}
+                    />
                     <span><span className="block font-mono text-xs text-slate-500">{p.key}</span>{p.description}</span>
                   </label>
                 ))}

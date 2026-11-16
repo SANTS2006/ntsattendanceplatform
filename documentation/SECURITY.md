@@ -33,7 +33,7 @@ logging with redaction of passwords, tokens, cookies, attempt tokens and QR toke
 
 256-bit QR tokens stored only as SHA-256 hashes; optional 30-second rotation; server-side expiry;
 attempt tokens bound to QR token + session + tenant; per-step rate limits; per-client failure caps
-(student ID enumeration, location retries) with security events; masked student emails;
+(student ID enumeration, location retries) with security events; student emails shown in full on the attendance page by product decision (enumeration is limited by the failure caps);
 idempotency keys and a unique `(sessionId, studentId)` constraint; confirmation pages require a
 192-bit confirmation token in addition to the reference number.
 

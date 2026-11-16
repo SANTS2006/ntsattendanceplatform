@@ -21,7 +21,7 @@
 |---|---|
 | Scan QR → `POST /public/attendance/:token/validate` | Token hash exists, not revoked, session active, not expired (server clock), organization active. Returns the context, student-ID format and a signed attempt token. |
 | Share location → `/verify-location` | Coordinates valid; accuracy ≤ threshold; Haversine distance ≤ radius. Repeated failures per client are capped and logged. |
-| Type student ID → `/verify-student` | Live `n/8` counter; verification starts automatically once the configured format is satisfied (no lookup button). Server validates format, finds the active student in this tenant, checks enrollment/registration and that attendance isn't already recorded. Failure caps prevent enumeration. Returns name, ID, masked email, program and level. |
+| Type student ID → `/verify-student` | Live `n/8` counter; verification starts automatically once the configured format is satisfied (no lookup button). Server validates format, finds the active student in this tenant, checks enrollment/registration and that attendance isn't already recorded. Failure caps prevent enumeration. Returns name, ID, full email (shown so the student can confirm it is their record), program and level. |
 | Selfie → `/upload-selfie` | Front camera capture (or native camera fallback); type sniffing, decode, EXIF stripping, private storage. |
 | Submit → `/submit` (Idempotency-Key) | Re-validates **everything** in one transaction with the server clock: session open, student active and eligible, location, selfie ownership, late rules. The unique constraint makes concurrent duplicates impossible; the same idempotency key replays the original success. |
 | Success page | Reference number, details, server time in the organization's time zone, selfie. |
