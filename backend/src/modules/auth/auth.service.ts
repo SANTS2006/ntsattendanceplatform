@@ -1,3 +1,4 @@
+import { isPlaceholderAccount } from '../lecturers/accounts.js';
 import { invalidateMembership, resolveActiveRole } from '../../middleware/auth.js';
 import type { Request } from 'express';
 import type { User } from '@prisma/client';
@@ -90,7 +91,11 @@ export async function startRegistration(
     ...(env.isTest && code ? { _testCode: code } : {}),
   });
   // Existing account: identical response, but the email says "sign in instead" (no enumeration).
-  if (await prisma.user.findUnique({ where: { email }, select: { id: true } })) {
+  // Exception: an account an organization created for this person (e.g. as a lecturer) that was
+  // never set up — they may register it themselves; verifying the emailed code completes it and
+  // keeps every membership it already has.
+  const existing = await prisma.user.findUnique({ where: { email }, select: { passwordHash: true, googleId: true } });
+  if (existing && !isPlaceholderAccount(existing)) {
     await emails.accountExists(email);
     return response();
   }
@@ -155,7 +160,18 @@ export async function verifyRegistration(emailRaw: string, codeRaw: string, meta
   const user = await prisma.$transaction(async (tx) => {
     const claimed = await tx.pendingRegistration.deleteMany({ where: { id: pending.id } });
     if (claimed.count !== 1) throw invalid();
-    if (await tx.user.findUnique({ where: { email }, select: { id: true } })) throw conflict('An account with this email already exists. Please sign in.', 'EMAIL_TAKEN');
+    const current = await tx.user.findUnique({ where: { email } });
+    if (current && !isPlaceholderAccount(current)) throw conflict('An account with this email already exists. Please sign in.', 'EMAIL_TAKEN');
+    if (current) {
+      // Complete the account an organization created for this person; memberships are untouched.
+      return tx.user.update({
+        where: { id: current.id },
+        data: {
+          firstName: pending.firstName, lastName: pending.lastName, phone: pending.phone ?? current.phone,
+          passwordHash: pending.passwordHash, passwordChangedAt: new Date(), emailVerifiedAt: current.emailVerifiedAt ?? new Date(), termsAcceptedAt: pending.termsAcceptedAt,
+        },
+      });
+    }
     return tx.user.create({
       data: {
         email, firstName: pending.firstName, lastName: pending.lastName, phone: pending.phone,
@@ -461,6 +477,9 @@ export async function resetPassword(raw: string, password: string, meta: Meta) {
     where: { id: token.userId },
     data: { passwordHash: await hashPassword(password), passwordChangedAt: new Date(), failedLoginCount: 0, lockedUntil: null },
   });
+  // The reset link was delivered to the address, which proves ownership (completes accounts that
+  // an organization created and the person set up via "Forgot password").
+  await prisma.user.updateMany({ where: { id: token.userId, emailVerifiedAt: null }, data: { emailVerifiedAt: new Date() } });
   await revokeAllSessions(token.userId, 'password_reset');
   await audit({ action: 'auth.password_reset', actorUserId: token.userId, actorType: 'USER', targetType: 'User', targetId: token.userId, req: meta.req });
 }

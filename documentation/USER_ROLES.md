@@ -38,6 +38,22 @@ Members can only grant permissions they hold organization-wide.
 Department scoping: assigning a role "for department X" limits its permissions to that
 department's students, courses, classes and sessions.
 
+## Lecturer accounts and multiple organizations
+
+- **Adding a lecturer creates their account.** When a lecturer is added (one at a time or by import),
+  NTSAttend creates an account for that email in the organization with the Lecturer role and emails a
+  single-use link (7 days) to set a password. The lecturer list shows *Awaiting setup* / *Active*, and
+  *Resend email* issues a fresh link (older links stop working). If the email already has an
+  NTSAttend account, that account is added to the organization and notified — its password and other
+  memberships are untouched. “Forgot password” also completes a pending account.
+- **One identity, many organizations.** An account can belong to several organizations. A lecturer
+  (or invited user) can sign up with the same email — the code-verified sign-up completes the account
+  the institution created — and create their own organization, where they are the owner with every
+  administrator permission. The organization switcher groups *Your organizations* and *Organizations
+  you work in*; *Create your own organization* is always available.
+- **Separation.** Roles and permissions are per organization; being an owner in one organization
+  grants nothing in another, and data never crosses organizations.
+
 ## Students
 
 Students have no accounts. They can only use the QR-scoped public attendance flow and view their

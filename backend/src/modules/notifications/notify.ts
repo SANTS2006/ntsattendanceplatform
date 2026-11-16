@@ -120,6 +120,43 @@ export const emails = {
       reason: `You received this email because an administrator of ${orgName} invited ${to}.`,
     }),
 
+  lecturerAccountCreated: (to: string, name: string, orgName: string, token: string) =>
+    queueEmail(to, `Your ${orgName} lecturer account on NTSAttend`, {
+      preheader: `${orgName} created an NTSAttend account for you. Set your password to start.`,
+      eyebrow: 'Account created',
+      tone: 'success',
+      title: `Welcome to ${orgName} on NTSAttend`,
+      name,
+      paragraphs: [
+        `${orgName} added you as a lecturer and created your NTSAttend account. Choose a password and confirm your details to start running QR attendance for your classes and events.`,
+        'The account is yours: besides your work for this organization, you can create your own organization space from it at any time.',
+      ],
+      details: [['Organization', orgName], ['Your role', 'Lecturer'], ['Sign-in email', to], ['Link expires', '7 days from now']],
+      action: { label: 'Set up my account', url: appLink(`/accept-invitation?token=${token}`) },
+      notes: [
+        'If the link has expired, ask your administrator to resend it, or use “Forgot password” on the sign-in page with this email.',
+        'If you were not expecting this, you can ignore this email.',
+      ],
+      reason: `You received this email because an administrator of ${orgName} added ${to} as a lecturer.`,
+    }),
+
+  addedToOrganization: (to: string, name: string, orgName: string, roleName: string) =>
+    queueEmail(to, `You were added to ${orgName} on NTSAttend`, {
+      preheader: `${orgName} added you as ${roleName}. Sign in with your existing account.`,
+      eyebrow: 'New organization',
+      tone: 'success',
+      title: `You now have access to ${orgName}`,
+      name,
+      paragraphs: [
+        `${orgName} added you as ${roleName}. Sign in with your existing NTSAttend account and choose ${orgName} in the organization switcher.`,
+        'Your own organizations and other memberships are unchanged.',
+      ],
+      details: [['Organization', orgName], ['Your role', roleName]],
+      action: { label: 'Sign in to NTSAttend', url: appLink('/login') },
+      notes: ['If you were not expecting this, contact the organization or NTSAttend support.'],
+      reason: `You received this email because an administrator of ${orgName} added ${to}.`,
+    }),
+
   supportReply: (to: string, name: string, subject: string, reply: string, ticketId: string) =>
     queueEmail(to, `Re: ${subject} — NTSAttend support`, {
       preheader: reply.slice(0, 120),

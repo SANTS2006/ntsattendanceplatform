@@ -74,7 +74,7 @@ export function ImportPage() {
   };
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="w-full">
       <PageHeader title="Import students" description="Upload a CSV or Excel (.xlsx) file, map its columns, review, then import." back={<Link to="/app/students" className="mb-2 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800"><ArrowLeft className="h-4 w-4" /> Students</Link>} />
 
       {step === 'upload' && (

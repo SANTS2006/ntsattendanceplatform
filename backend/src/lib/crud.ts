@@ -27,7 +27,9 @@ export type CrudConfig = {
   guardWrite?: (ctx: TenantContext, data: Record<string, unknown>, existing?: any) => Promise<void> | void;
   softDelete?: boolean; // set status ARCHIVED instead of deleting
   /** Runs after a successful create (e.g. assign the creating lecturer). */
-  afterCreate?: (ctx: TenantContext, row: any) => Promise<void> | void;
+  afterCreate?: (ctx: TenantContext, row: any, req: Request) => Promise<void> | void;
+  /** Shapes each row before it leaves the API (e.g. derive a status, drop internal fields). */
+  present?: (row: any) => any;
 };
 
 /**
@@ -41,6 +43,7 @@ export function registerCrud(router: Router, cfg: CrudConfig) {
   const filterSchema = z.object(cfg.filters ?? {});
   const listQuery = paginationQuery.extend({ search: z.string().trim().max(100).optional() }).merge(filterSchema);
 
+  const present = (row: any) => (cfg.present ? cfg.present(row) : row);
   const findScoped = async (ctx: TenantContext, id: string) => {
     const row = await delegate(ctx).findFirst({ where: { id, ...(cfg.scopeWhere?.(ctx) ?? {}) }, include: cfg.include });
     if (!row) throw notFound(cfg.entity);
@@ -61,13 +64,13 @@ export function registerCrud(router: Router, cfg: CrudConfig) {
         delegate(ctx).findMany({ where, include: cfg.include, orderBy: cfg.orderBy ?? { createdAt: 'desc' }, skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
         delegate(ctx).count({ where }),
       ]);
-      ok(res, items, { meta: pageMeta(q, total) });
+      ok(res, items.map(present), { meta: pageMeta(q, total) });
     },
   );
 
   r(
     { method: 'get', path: `${cfg.path}/:id`, summary: `Get a ${cfg.entity.toLowerCase()}`, tags: T, access: 'tenant', permission: cfg.readPermission, params: uuidParam },
-    async (req, res) => ok(res, await findScoped(tenantCtx(req), req.valid.params.id)),
+    async (req, res) => ok(res, present(await findScoped(tenantCtx(req), req.valid.params.id))),
   );
 
   r(
@@ -76,7 +79,7 @@ export function registerCrud(router: Router, cfg: CrudConfig) {
       const ctx = tenantCtx(req);
       await cfg.guardWrite?.(ctx, req.valid.body);
       const row = await delegate(ctx).create({ data: { ...req.valid.body, organizationId: ctx.organizationId } });
-      await cfg.afterCreate?.(ctx, row);
+      await cfg.afterCreate?.(ctx, row, req);
       if ('defaultLatitude' in req.valid.body) await auditVenue(req, cfg, row);
       await audit({ action: `${cfg.model}.created`, targetType: cfg.entity, targetId: row.id, metadata: { name: row.name ?? row.title ?? row.code ?? undefined }, req });
       created(res, row);

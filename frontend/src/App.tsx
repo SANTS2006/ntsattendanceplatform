@@ -16,6 +16,7 @@ const FeaturesPage = lazyNamed(m, 'FeaturesPage');
 const PricingPage = lazyNamed(m, 'PricingPage');
 const AboutPage = lazyNamed(m, 'AboutPage');
 const ContactPage = lazyNamed(m, 'ContactPage');
+const HowItWorksPage = lazyNamed(m, 'HowItWorksPage');
 const NotFoundPage = lazyNamed(m, 'NotFoundPage');
 const a = () => import('@/features/auth/AuthPages');
 const LoginPage = lazyNamed(a, 'LoginPage');
@@ -85,6 +86,7 @@ export function App() {
         <Route element={<PublicLayout />}>
           <Route index element={<LandingPage />} />
           <Route path="features" element={<FeaturesPage />} />
+          <Route path="how-it-works" element={<HowItWorksPage />} />
           <Route path="pricing" element={<PricingPage />} />
           <Route path="about" element={<AboutPage />} />
           <Route path="contact" element={<ContactPage />} />

@@ -1,9 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
 import {
-  BarChart3, BookOpen, Headset, History, Lightbulb, Building2, CalendarDays, ChevronDown, ClipboardCheck, GraduationCap, LayoutDashboard, Menu, QrCode, Settings,
+  BarChart3, BookOpen, Plus, Headset, History, Lightbulb, Building2, CalendarDays, ChevronDown, ClipboardCheck, GraduationCap, LayoutDashboard, Menu, QrCode, Settings,
   Shield, UserCog, Users, X,
 } from 'lucide-react';
 import { errorMessage } from '@/api/client';
@@ -15,7 +15,6 @@ import { ThemeToggle } from '@/theme/ThemeProvider';
 import { useSupportUnread } from '@/features/support/SupportPages';
 
 type NavItem = { to: string; label: string; icon: ReactNode; any?: string[]; end?: boolean; ownerOrAdmin?: boolean; badge?: 'support' };
-const FULL_WIDTH = new Set(['/app/attendance/new']);
 
 type NavGroup = { title: string; items: NavItem[] };
 
@@ -57,6 +56,9 @@ const NAV: NavGroup[] = [
 
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { can, me, org, switchOrganization } = useAuth();
+  const nav = useNavigate();
+  const owned = me?.organizations.filter((o) => o.isOwner) ?? [];
+  const memberOf = me?.organizations.filter((o) => !o.isOwner) ?? [];
   const isAdmin = !!org && (org.isOwner || can('organization.manage'));
   const supportUnread = useSupportUnread(isAdmin);
   const groups = NAV.map((g) => ({ ...g, items: g.items.filter((n) => (n.ownerOrAdmin ? isAdmin : !n.any || n.any.some(can))) })).filter((g) => g.items.length);
@@ -78,11 +80,22 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 id="org-switch"
                 className="w-full appearance-none rounded-xl border border-white/10 bg-white/[0.07] py-2.5 pr-8 pl-9 text-xs font-semibold text-white outline-none focus:ring-2 focus:ring-cyan-400/40"
                 value={org.id}
-                onChange={(e) => switchOrganization(e.target.value).then(() => toast.success('Organization switched'), (err) => toast.error(errorMessage(err)))}
+                onChange={(e) => {
+                  if (e.target.value === '__new') { onNavigate?.(); nav('/onboarding'); return; }
+                  switchOrganization(e.target.value).then(() => toast.success('Organization switched'), (err) => toast.error(errorMessage(err)));
+                }}
               >
-                {me.organizations.map((o) => (
-                  <option key={o.id} value={o.id} className="text-slate-900">{o.name}</option>
-                ))}
+                {owned.length > 0 && (
+                  <optgroup label="Your organizations" className="text-slate-900">
+                    {owned.map((o) => <option key={o.id} value={o.id} className="text-slate-900">{o.name}</option>)}
+                  </optgroup>
+                )}
+                {memberOf.length > 0 && (
+                  <optgroup label="Organizations you work in" className="text-slate-900">
+                    {memberOf.map((o) => <option key={o.id} value={o.id} className="text-slate-900">{o.name}</option>)}
+                  </optgroup>
+                )}
+                <option value="__new" className="text-slate-900">+ Create your own organization…</option>
               </select>
               <ChevronDown className="pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-white/50" />
             </div>
@@ -91,6 +104,13 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
               <Building2 className="h-4 w-4 shrink-0 text-cyan-200" />
               <span className="truncate">{org.name}</span>
             </div>
+          )}
+          {me && owned.length === 0 && (
+            // Members (e.g. lecturers added by an institution) can open their own organization space
+            // with the same account; it is separate from the organizations they work in.
+            <Link to="/onboarding" onClick={onNavigate} className="mt-2 flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-cyan-100/80 transition hover:bg-white/[0.06] hover:text-white">
+              <Plus className="h-3.5 w-3.5" /> Create your own organization
+            </Link>
           )}
         </div>
       )}
@@ -206,7 +226,8 @@ export function AppLayout() {
           </div>
         </header>
         {/* Full-bleed pages use the whole width with a small gutter; the rest stay at a readable max width. */}
-        <main className={clsx('mx-auto py-6 lg:py-8', FULL_WIDTH.has(loc.pathname) ? 'max-w-none px-3 sm:px-4 lg:px-5' : 'max-w-7xl px-4 sm:px-6 lg:px-8')}>
+        {/* Every page uses the full width of the content area, with small padding. */}
+        <main className="w-full px-3 py-5 sm:px-4 lg:px-6 lg:py-6">
           <Outlet />
         </main>
       </div>

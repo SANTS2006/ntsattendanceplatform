@@ -6,9 +6,14 @@ import { badRequest, notFound } from '../../lib/errors.js';
 import { ok, nullableStr, nullableUuid, uuidParam } from '../../lib/http.js';
 import { routes } from '../../lib/route.js';
 import { tenantCtx } from '../../middleware/context.js';
-import { invite } from '../members/members.service.js';
+import { logger } from '../../lib/logger.js';
+import { lecturerAccountState, provisionLecturerAccount } from './accounts.js';
 
 export const lecturersRouter = Router();
+const lecturerScope = (ctx: ReturnType<typeof tenantCtx>) => {
+  const s = ctx.scope('lecturers.read') ?? ctx.scope('lecturers.manage');
+  return Array.isArray(s) ? { departmentId: { in: s } } : {};
+};
 const r = routes(lecturersRouter, '');
 const T = ['Lecturers'];
 
@@ -52,16 +57,32 @@ registerCrud(lecturersRouter, {
   filters: { departmentId: z.string().uuid().optional(), status: z.enum(['ACTIVE', 'ARCHIVED']).optional() },
   include: {
     department: { select: { id: true, name: true } },
-    membership: { select: { id: true, status: true } },
+    // user credentials are only read to derive accountStatus in `present` and are never returned.
+    membership: { select: { id: true, status: true, user: { select: { passwordHash: true, googleId: true } } } },
     classes: { include: { class: { select: { id: true, name: true, code: true } } } },
   },
   searchFields: ['firstName', 'lastName', 'email', 'staffNumber'],
   orderBy: { lastName: 'asc' },
   softDelete: true,
+  present: ({ membership, ...row }) => ({
+    ...row,
+    membership: membership ? { id: membership.id, status: membership.status } : null,
+    accountStatus: lecturerAccountState(membership),
+  }),
+  // Every new lecturer gets a sign-in account in this organization (setup link by email, or the
+  // person's existing account is added). A failure here never undoes the lecturer record; the
+  // administrator can resend from the lecturer list.
+  afterCreate: async (ctx, row, req) => {
+    try {
+      await provisionLecturerAccount({ organizationId: ctx.organizationId, lecturerId: row.id, actorUserId: ctx.userId, req });
+    } catch (err) {
+      logger.warn({ lecturerId: row.id, err: err instanceof Error ? err.message : err }, 'lecturer account provisioning failed');
+    }
+  },
   // Department administrators see and manage only their department's lecturers.
   scopeWhere: (ctx) => {
-    const s = ctx.scope('lecturers.read') ?? ctx.scope('lecturers.manage');
-    return Array.isArray(s) ? { departmentId: { in: s } } : undefined;
+    const w = lecturerScope(ctx);
+    return 'departmentId' in w ? w : undefined;
   },
   guardWrite: (ctx, data, existing) => {
     const s = ctx.scope('lecturers.manage');
@@ -73,17 +94,15 @@ registerCrud(lecturersRouter, {
 
 r(
   {
-    method: 'post', path: '/lecturers/:id/invite', summary: 'Send the lecturer an account invitation (lecturer role)', tags: T, access: 'tenant',
+    method: 'post', path: '/lecturers/:id/invite', summary: 'Create an account for the lecturer, or resend the account setup email', tags: T, access: 'tenant',
     permission: ['lecturers.manage'], params: uuidParam,
   },
   async (req, res) => {
     const ctx = tenantCtx(req);
-    ctx.require('members.manage');
-    const lecturer = await ctx.db.lecturer.findUnique({ where: { id: req.valid.params.id } });
+    const lecturer = await ctx.db.lecturer.findFirst({ where: { id: req.valid.params.id, ...lecturerScope(ctx) } });
     if (!lecturer) throw notFound('Lecturer');
-    if (lecturer.membershipId) throw badRequest('This lecturer already has an account', 'ALREADY_LINKED');
-    const role = await ctx.db.role.findFirst({ where: { key: 'lecturer' } });
-    if (!role) throw notFound('Lecturer role');
-    ok(res, await invite(ctx, { email: lecturer.email, roleId: role.id, departmentId: null, createLecturer: true }, req), { message: 'Invitation sent' });
+    const result = await provisionLecturerAccount({ organizationId: ctx.organizationId, lecturerId: lecturer.id, actorUserId: ctx.userId, req, resend: true });
+    if (result.status === 'ALREADY_LINKED') throw badRequest('This lecturer already has an active account', 'ALREADY_LINKED');
+    ok(res, result, { message: result.status === 'SETUP_EMAIL_SENT' ? 'Account setup email sent' : 'Lecturer added to the organization with their existing account' });
   },
 );

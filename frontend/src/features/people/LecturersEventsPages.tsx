@@ -16,7 +16,9 @@ import { RecordHistory } from '@/components/History';
 
 type Lecturer = {
   id: string; firstName: string; lastName: string; title: string | null; email: string; staffNumber: string | null; phone: string | null; status: string;
-  departmentId: string | null; department: { name: string } | null; membership: { id: string; status: string } | null; classes: { class: { id: string; code: string } }[];
+  departmentId: string | null; department: { name: string } | null; membership: { id: string; status: string } | null;
+  /** NONE · PENDING_SETUP (account created, password not set yet) · ACTIVE · SUSPENDED */
+  accountStatus?: 'NONE' | 'PENDING_SETUP' | 'ACTIVE' | 'SUSPENDED'; classes: { class: { id: string; code: string } }[];
 };
 
 export function LecturersPage() {
@@ -24,19 +26,31 @@ export function LecturersPage() {
   const qc = useQueryClient();
   const invite = useMutation({
     mutationFn: (id: string) => post(`/lecturers/${id}/invite`),
-    onSuccess: () => { toast.success('Invitation sent'); qc.invalidateQueries({ queryKey: ['lecturers'] }); },
+    onSuccess: () => { toast.success('Account setup email sent'); qc.invalidateQueries({ queryKey: ['lecturers'] }); },
     onError: (e) => toast.error(errorMessage(e)),
   });
   return (
     <div>
-      <PageHeader title="Lecturers" description="Teaching staff. Invite them to give them an NTS account with the Lecturer role." />
+      <PageHeader title="Lecturers" description="Teaching staff. Adding a lecturer creates their NTSAttend account in this organization (Lecturer role) and emails them a link to set their password." />
       <ResourceManager<Lecturer>
         title="Lecturer" url="/lecturers" queryKey="lecturers" managePermission="lecturers.manage" deleteLabel="Archive"
         columns={[
           { key: 'n', header: 'Name', render: (l) => <div><p className="font-medium">{`${l.title ?? ''} ${l.firstName} ${l.lastName}`.trim()}</p><p className="text-xs text-slate-500">{l.email}</p></div> },
           { key: 'd', header: 'Department', render: (l) => l.department?.name ?? '—' },
           { key: 'c', header: 'Classes', render: (l) => l.classes.map((c) => c.class.code).join(', ') || '—' },
-          { key: 'a', header: 'Account', render: (l) => (l.membership ? <Badge tone="ACTIVE">Linked</Badge> : can('members.manage') && can('lecturers.manage') ? <Button size="sm" variant="secondary" icon={<Send className="h-3.5 w-3.5" />} onClick={(e) => { e.stopPropagation(); invite.mutate(l.id); }}>Invite</Button> : <Badge tone="PENDING">No account</Badge>) },
+          {
+            key: 'a', header: 'Account', render: (l) => {
+              const state = l.accountStatus ?? (l.membership ? 'ACTIVE' : 'NONE');
+              const action = (label: string) =>
+                can('lecturers.manage') && l.status === 'ACTIVE' ? (
+                  <Button size="sm" variant="secondary" loading={invite.isPending && invite.variables === l.id} icon={<Send className="h-3.5 w-3.5" />} onClick={(e) => { e.stopPropagation(); invite.mutate(l.id); }}>{label}</Button>
+                ) : null;
+              if (state === 'ACTIVE') return <Badge tone="ACTIVE">Active</Badge>;
+              if (state === 'SUSPENDED') return <Badge tone="SUSPENDED">Suspended</Badge>;
+              if (state === 'PENDING_SETUP') return <div className="flex flex-wrap items-center gap-2"><Badge tone="PENDING">Awaiting setup</Badge>{action('Resend email')}</div>;
+              return action('Create account') ?? <Badge tone="PENDING">No account</Badge>;
+            },
+          },
           { key: 's', header: 'Status', render: (l) => statusBadge(l.status) },
         ]}
         fields={[

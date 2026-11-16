@@ -499,7 +499,11 @@ export function ResetPasswordPage() {
 
 /* ── Invitations ─────────────────────────────────────────────────────────────── */
 
-type InvitationInfo = { organizationName: string; email: string; roleName: string; expiresAt: string; accountExists: boolean };
+type InvitationInfo = {
+  organizationName: string; email: string; roleName: string; expiresAt: string; accountExists: boolean;
+  /** The organization already created an account for this email; it only needs a password. */
+  setupRequired?: boolean; firstName?: string | null; lastName?: string | null;
+};
 
 export function AcceptInvitationPage() {
   const [sp] = useSearchParams();
@@ -512,8 +516,14 @@ export function AcceptInvitationPage() {
   const form = useForm<z.infer<typeof schema>>({ resolver: zodResolver(schema) });
   const pw = form.watch('password') ?? '';
   useEffect(() => {
-    get<InvitationInfo>('/invitations/lookup', { token }).then(setInfo, (e) => setError(errorMessage(e)));
-  }, [token]);
+    get<InvitationInfo>('/invitations/lookup', { token }).then(
+      (i) => {
+        setInfo(i);
+        form.reset({ firstName: i.firstName ?? '', lastName: i.lastName ?? '', password: '' });
+      },
+      (e) => setError(errorMessage(e)),
+    );
+  }, [token, form]);
 
   const accept = async (body: Record<string, unknown> = {}) => {
     try {
@@ -535,7 +545,16 @@ export function AcceptInvitationPage() {
     );
   }
   return (
-    <AuthShell title={`Join ${info.organizationName}`} subtitle={<>You were invited as <span className="font-semibold text-navy-800">{info.roleName}</span> ({info.email}).</>}>
+    <AuthShell
+      title={info.setupRequired ? 'Set up your account' : `Join ${info.organizationName}`}
+      subtitle={
+        info.setupRequired ? (
+          <><span className="font-semibold text-navy-800">{info.organizationName}</span> created your account as <span className="font-semibold text-navy-800">{info.roleName}</span> ({info.email}). Confirm your name and choose a password.</>
+        ) : (
+          <>You were invited as <span className="font-semibold text-navy-800">{info.roleName}</span> ({info.email}).</>
+        )
+      }
+    >
       {info.accountExists ? (
         status === 'authenticated' && me?.user.email === info.email ? (
           <Button size="lg" className="w-full" onClick={() => accept()}>
@@ -558,8 +577,11 @@ export function AcceptInvitationPage() {
           <PasswordInput label="Create a password" autoComplete="new-password" error={form.formState.errors.password?.message} {...form.register('password')} />
           <StrengthMeter password={pw} />
           <Button type="submit" size="lg" className="w-full" loading={form.formState.isSubmitting}>
-            Create account & join
+            {info.setupRequired ? 'Save and continue' : 'Create account & join'}
           </Button>
+          <p className="text-xs leading-relaxed text-slate-600">
+            This account is yours. Besides your role in {info.organizationName}, you can create your own organization from it at any time — the two stay separate.
+          </p>
         </form>
       )}
     </AuthShell>

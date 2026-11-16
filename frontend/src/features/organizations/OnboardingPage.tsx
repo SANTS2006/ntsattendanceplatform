@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { Building2, Calendar, GraduationCap, MailWarning, School, Sparkles, Users } from 'lucide-react';
+import { ArrowLeft, Building2, Calendar, GraduationCap, MailWarning, School, Sparkles, Users } from 'lucide-react';
 import { errorMessage, post } from '@/api/client';
 import { useAuth } from '@/auth/AuthProvider';
 import { Button, Input, Select, Textarea } from '@/components/ui';
@@ -65,9 +65,21 @@ export function OnboardingPage() {
   return (
     <div className="bg-app min-h-screen">
       <div className="mx-auto max-w-2xl px-4 py-10">
-        <Logo />
+        <div className="flex items-center justify-between gap-4">
+          <Logo />
+          {!!me?.organizations.length && (
+            <Link to="/app" className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-700 hover:text-brand-800">
+              <ArrowLeft className="h-4 w-4" /> Back to {me.organizations.find((o) => o.id === me.activeOrganizationId)?.name ?? 'the app'}
+            </Link>
+          )}
+        </div>
         <h1 className="mt-8 text-3xl font-extrabold tracking-tight text-navy-900">Register your <span className="text-gradient">organization</span></h1>
-        <p className="mt-1 text-sm text-slate-500">You’ll become its owner. Everything you configure applies only to your organization.</p>
+        <p className="mt-1 text-sm text-slate-600">You’ll become its owner, with every administrator permission. Everything you configure applies only to your organization.</p>
+        {!!me?.organizations.some((o) => !o.isOwner) && (
+          <p className="mt-3 rounded-xl border border-brand-100 bg-brand-50/70 p-3 text-sm text-brand-900">
+            You keep your roles in {me.organizations.filter((o) => !o.isOwner).map((o) => o.name).join(', ')}. Use the organization switcher to move between your own organization and the ones you work in — their data never mixes.
+          </p>
+        )}
         <ol className="mt-6 flex gap-2 text-xs font-medium" aria-label="Progress">
           {['Type', 'Details', 'Confirm'].map((s, i) => (
             <li key={s} className={clsx('flex-1 rounded-full px-3 py-1.5 text-center transition', step > i ? 'bg-gradient-to-r from-brand-600 to-cyan-brand text-white shadow-[var(--shadow-glow)]' : 'bg-white text-slate-400 ring-1 ring-slate-200')}>

@@ -11,7 +11,7 @@ function LegalLayout({ title, intro, icon, sections, other }: { title: string; i
     <div className="bg-app">
       <section className="bg-hero animate-gradient relative overflow-hidden text-white">
         <div className="pointer-events-none absolute -top-16 right-10 h-56 w-56 rounded-full bg-cyan-400/25 blur-3xl" />
-        <div className="relative mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16">
+        <div className="relative mx-auto max-w-6xl px-4 pt-32 pb-12 sm:px-6 sm:pt-36 sm:pb-16">
           <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 ring-1 ring-white/20">{icon}</span>
           <h1 className="mt-4 text-3xl font-extrabold sm:text-4xl">{title}</h1>
           <p className="mt-2 max-w-2xl text-white/75">{intro}</p>

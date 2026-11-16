@@ -33,6 +33,9 @@ Details: [documentation/ARCHITECTURE.md](documentation/ARCHITECTURE.md).
 | 17 Cloudflare R2 backup & restore (Super Admin console) | ✅ needs R2 credentials |
 | 18 Terms/Privacy pages + required consent at sign-up | ✅ (legal review recommended) |
 | 19 Render Blueprint, Neon-only database, local database and local files removed | ✅ |
+| 21 Full-width pages for every role (app and platform consoles) | ✅ |
+| 22 Lecturer accounts created automatically (setup email, resend, import) and one account across many organizations (own organization + lecturer roles, grouped switcher) | ✅ code + 5 integration tests |
+| 23 Public website redesign: three.js 3D hero (lazy-loaded), scroll-driven check-in story, reveal/tilt/parallax animations, new How it works page, rebuilt Features/Pricing/About/Contact/404, full footer | ✅ checked in the browser (desktop, phone, light/dark) |
 | 20 GPS geofencing accuracy fix: venue capture gated by accuracy, manual map placement (Leaflet/OSM), multi-reading acquisition (best fresh reading, no averaging), server freshness → accuracy → distance checks, verified location carried to submit, configurable location policy with warnings, venue audit | ✅ code + automated tests; **not yet validated on real devices in a classroom** |
 
 ## Project structure
@@ -106,6 +109,15 @@ maximum student GPS uncertainty from 50 m to 25–30 m after testing in your cla
 | Type checks (backend `tsc`, frontend `tsc -b`) | passed |
 | Full backend suite (other 115 tests) | **not re-run** — ~1.6 s per query from this machine to Neon makes it take hours; run it in CI |
 | Playwright E2E (8 specs, 2 new for venue capture) | **not run** — would write to the production database (see above) |
+
+## Website, accounts and layout (2026-11-16)
+
+- Public contact details (email, phone, address) are blank in `frontend/src/features/marketing/site.ts`
+  and are not shown until filled in; no testimonials or customer logos were invented.
+- The 3D hero uses three.js in its own lazily loaded chunk (≈123 KB gzipped, home page only) with a
+  CSS-3D fallback when WebGL is unavailable and a still frame for reduced motion.
+- Lecturer accounts: see [USER_ROLES.md](documentation/USER_ROLES.md#lecturer-accounts-and-multiple-organizations).
+  Creating a lecturer now needs only `lecturers.manage` (it grants the system Lecturer role).
 
 ## Known issues / limitations
 

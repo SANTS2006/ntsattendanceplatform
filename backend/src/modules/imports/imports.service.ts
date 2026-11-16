@@ -1,3 +1,5 @@
+import { logger } from '../../lib/logger.js';
+import { provisionLecturerAccount } from '../lecturers/accounts.js';
 import type { Request } from 'express';
 import { stringify } from 'csv-stringify/sync';
 import { tenantDb, withTenant, type TenantDb } from '../../db/tenant.js';
@@ -244,6 +246,7 @@ export async function runGenericImportJob(data: { organizationId: string; import
     const { valid, errors } = await validateRows(data.organizationId, spec, rows, mapping);
     const failures: { line: number; errors: string[] }[] = [...errors.entries()].map(([line, errs]) => ({ line, errors: errs }));
     let success = 0;
+    const createdIds: string[] = [];
     for (let i = 0; i < valid.length; i += 200) {
       const batch = valid.slice(i, i + 200);
       await withTenant(data.organizationId, async (tx) => {
@@ -258,11 +261,20 @@ export async function runGenericImportJob(data: { organizationId: string; import
               success++;
             } else failures.push({ line: v.line, errors: [`This ${spec.label} already exists`] });
           } else {
-            await delegate.create({ data: { ...v.data, organizationId: data.organizationId } });
+            const row = await delegate.create({ data: { ...v.data, organizationId: data.organizationId } });
+            createdIds.push(row.id);
             success++;
           }
         }
       }, { timeout: 60_000 });
+    }
+    // Imported lecturers get sign-in accounts exactly like lecturers added one by one.
+    if (spec.model === 'lecturer') {
+      for (const lecturerId of createdIds) {
+        await provisionLecturerAccount({ organizationId: data.organizationId, lecturerId, actorUserId: imp.uploadedById }).catch((err) =>
+          logger.warn({ lecturerId, err: err instanceof Error ? err.message : err }, 'lecturer account provisioning failed'),
+        );
+      }
     }
     let errorReportKey: string | null = null;
     if (failures.length) {

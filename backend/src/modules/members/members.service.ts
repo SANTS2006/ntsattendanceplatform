@@ -11,6 +11,7 @@ import { audit } from '../audit/audit.service.js';
 import { issueSession } from '../auth/auth.service.js';
 import { hashPassword } from '../auth/password.js';
 import { emails } from '../notifications/notify.js';
+import { isPlaceholderAccount } from '../lecturers/accounts.js';
 
 const INVITE_DAYS = 7;
 
@@ -229,8 +230,15 @@ async function findValidInvitation(raw: string) {
 
 export async function lookupInvitation(raw: string) {
   const { inv, org } = await findValidInvitation(raw);
-  const accountExists = !!(await prisma.user.findUnique({ where: { email: inv.email }, select: { id: true } }));
-  return { organizationName: org.name, email: inv.email, roleName: inv.role.name, expiresAt: inv.expiresAt, accountExists };
+  const user = await prisma.user.findUnique({ where: { email: inv.email }, select: { firstName: true, lastName: true, passwordHash: true, googleId: true } });
+  // An account created for the invitee (e.g. as a lecturer) that was never set up is completed here
+  // with a password, like a new account; a real existing account must sign in instead.
+  const accountExists = !!user && !isPlaceholderAccount(user);
+  return {
+    organizationName: org.name, email: inv.email, roleName: inv.role.name, expiresAt: inv.expiresAt, accountExists,
+    setupRequired: !!user && !accountExists,
+    firstName: user?.firstName ?? null, lastName: user?.lastName ?? null,
+  };
 }
 
 /**
@@ -246,7 +254,18 @@ export async function acceptInvitation(
 ) {
   const { inv } = await findValidInvitation(raw);
   let user = await prisma.user.findUnique({ where: { email: inv.email } });
-  if (user) {
+  if (user && isPlaceholderAccount(user)) {
+    // Account created for this person by the organization: the emailed link proves ownership.
+    if (!input.password) throw badRequest('Choose a password to set up your account', 'ACCOUNT_DETAILS_REQUIRED');
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        firstName: input.firstName || user.firstName, lastName: input.lastName || user.lastName,
+        passwordHash: await hashPassword(input.password), passwordChangedAt: new Date(), emailVerifiedAt: user.emailVerifiedAt ?? new Date(),
+      },
+    });
+    await audit({ action: 'auth.account_setup_completed', organizationId: inv.organizationId, actorUserId: user.id, actorType: 'USER', targetType: 'User', targetId: user.id, req });
+  } else if (user) {
     if (!bearer) throw unauthorized('Sign in with the invited account to accept this invitation', 'SIGN_IN_REQUIRED');
     const claims = verifyAccessToken(bearer);
     if (claims.sub !== user.id) throw forbidden('This invitation was sent to a different email address', 'INVITATION_EMAIL_MISMATCH');
@@ -270,9 +289,13 @@ export async function acceptInvitation(
       create: { organizationId: inv.organizationId, userId },
       update: { status: 'ACTIVE' },
     });
-    await tx.membershipRole.create({
-      data: { organizationId: inv.organizationId, membershipId: membership.id, roleId: inv.roleId, departmentId: inv.departmentId },
-    });
+    // Accounts provisioned for lecturers already hold the role; never duplicate it.
+    const hasRole = await tx.membershipRole.findFirst({ where: { membershipId: membership.id, roleId: inv.roleId, departmentId: inv.departmentId } });
+    if (!hasRole) {
+      await tx.membershipRole.create({
+        data: { organizationId: inv.organizationId, membershipId: membership.id, roleId: inv.roleId, departmentId: inv.departmentId },
+      });
+    }
     if (inv.createLecturer) {
       const existing = await tx.lecturer.findUnique({ where: { organizationId_email: { organizationId: inv.organizationId, email: inv.email } } });
       if (existing) {

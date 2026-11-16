@@ -100,7 +100,7 @@ export function PlatformLayout() {
             <ProfileMenu context="platform" />
           </div>
         </header>
-        <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <main className="w-full px-3 py-5 sm:px-4 lg:px-6 lg:py-6">
           <Outlet />
         </main>
       </div>
