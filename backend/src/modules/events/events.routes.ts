@@ -1,3 +1,4 @@
+import { applyVenueFields } from '../organizations/venue.js';
 import { candidateQuery, candidateStudents, enrollableStudentWhere } from '../academics/academics.routes.js';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -21,6 +22,8 @@ const eventBody = z.object({
   requireRegistration: z.boolean().optional(),
   defaultLatitude: z.number().min(-90).max(90).nullable().optional(),
   defaultLongitude: z.number().min(-180).max(180).nullable().optional(),
+  venueLocationSource: z.enum(['GPS', 'MAP']).nullable().optional(),
+  venueAccuracyM: z.number().finite().nonnegative().max(1_000_000).nullable().optional(),
   status: z.enum(['ACTIVE', 'ARCHIVED']).optional(),
 });
 
@@ -40,7 +43,8 @@ registerCrud(eventsRouter, {
   },
   searchFields: ['name', 'venue'], orderBy: { startsAt: 'desc' }, softDelete: true,
   scopeWhere: (ctx) => eventScopeWhere(ctx),
-  guardWrite: (ctx, data, existing) => {
+  guardWrite: async (ctx, data, existing) => {
+    await applyVenueFields(ctx, data);
     if (!ctx.has('events.manage') && (!ctx.has('events.manage_assigned') || !ctx.lecturerId)) throw forbidden();
     if (existing && !ctx.has('events.manage') && !existing.managers?.some((m: { lecturerId: string }) => m.lecturerId === ctx.lecturerId)) {
       throw forbidden('You can only change events you manage', 'NOT_ASSIGNED');

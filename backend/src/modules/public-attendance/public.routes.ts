@@ -49,6 +49,9 @@ const coords = z.object({
   latitude: z.number().finite().nullable().optional(),
   longitude: z.number().finite().nullable().optional(),
   accuracy: z.number().finite().nonnegative().max(100_000).nullable().optional(),
+  /** Position.timestamp (ms) and the device clock when sending — used to reject stale/cached readings. */
+  timestamp: z.number().finite().nullable().optional(),
+  clientTime: z.number().finite().nullable().optional(),
 });
 
 r(

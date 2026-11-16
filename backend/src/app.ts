@@ -70,7 +70,7 @@ export function createApp(): Express {
           formAction: ["'self'"],
           scriptSrc: ["'self'", 'https://accounts.google.com/gsi/client'],
           styleSrc: ["'self'", "'unsafe-inline'", 'https://accounts.google.com/gsi/style'],
-          imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com', 'https://api.cloudinary.com', 'https://*.googleusercontent.com'],
+          imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com', 'https://api.cloudinary.com', 'https://*.googleusercontent.com', 'https://tile.openstreetmap.org'],
           fontSrc: ["'self'", 'data:'],
           connectSrc: ["'self'", 'https://accounts.google.com/gsi/', 'wss:', 'ws:'],
           frameSrc: ['https://accounts.google.com/gsi/'],

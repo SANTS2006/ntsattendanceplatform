@@ -30,16 +30,23 @@ vi.mock('./api', async (orig) => {
   return {
     ...real,
     attendApi: { validate: (...a: unknown[]) => validate(...a), verifyStudent: (...a: unknown[]) => verifyStudent(...a), verifyLocation: (...a: unknown[]) => verifyLocation(...a), submit: (...a: unknown[]) => submit(...a), uploadSelfie: vi.fn(), confirmation: vi.fn() },
-    getPosition: () => Promise.resolve({ latitude: 8.48, longitude: -13.23, accuracy: 10 }),
   };
 });
+// Location acquisition is unit-tested in src/lib/geo.test.ts; here it returns a controllable reading.
+const acquire = vi.fn();
+vi.mock('@/lib/geo', async (orig) => {
+  const real = await orig<typeof import('@/lib/geo')>();
+  return { ...real, acquireLocation: (...a: unknown[]) => acquire(...a), locationPermission: () => Promise.resolve('granted') };
+});
+const reading = (accuracy: number) => ({ latitude: 8.4844, longitude: -13.2344, accuracy, timestamp: Date.now() });
 
 const { AttendPage } = await import('./AttendPage');
 
 const session = (over: Partial<{ locationRequired: boolean; selfieRequired: boolean }> = {}) => ({
   attemptToken: 'attempt-1',
   organization: { name: 'Demo University', logoUrl: null },
-  session: { title: 'CS201', context: 'CS201 — Data Structures', type: 'CLASS', lecturer: 'Dr. K', expiresAt: new Date(Date.now() + 600_000).toISOString(), serverTime: new Date().toISOString(), locationRequired: false, selfieRequired: false, radiusM: 100, minAccuracyM: 50, ...over },
+  session: { title: 'CS201', context: 'CS201 — Data Structures', type: 'CLASS', lecturer: 'Dr. K', expiresAt: new Date(Date.now() + 600_000).toISOString(), serverTime: new Date().toISOString(), locationRequired: false, selfieRequired: false, radiusM: 20, minAccuracyM: 50, ...over,
+    locationPolicy: over.locationRequired ? { radiusM: 20, maxAccuracyM: 50, maxLocationAgeSeconds: 30, timeoutSeconds: 60, sampleCount: 5, maxAttempts: 5, venueSource: 'GPS' } : null },
   studentIdFormat: fmt,
 });
 
@@ -89,14 +96,43 @@ describe('AttendPage', () => {
 
   it('requires location first when the session demands it and reports geofence failures', async () => {
     validate.mockResolvedValue(session({ locationRequired: true }));
-    verifyLocation.mockRejectedValue(new ApiError(403, 'OUTSIDE_GEOFENCE', 'You are not within the class attendance location. You cannot record your attendance.'));
+    acquire.mockResolvedValue({ status: 'ACCEPTABLE', best: reading(8), samples: [reading(8)], stable: true, spreadM: 1 });
+    verifyLocation.mockRejectedValue(new ApiError(403, 'OUTSIDE_GEOFENCE', 'You are not within the class attendance location. You cannot record your attendance.', { distanceM: 64, accuracyM: 8, radiusM: 20, maxAccuracyM: 50 }));
     renderPage();
     const input = await screen.findByLabelText('Student ID');
     expect(input.closest('fieldset')).toBeDisabled();
     await act(async () => {
       await userEvent.setup().click(screen.getByRole('button', { name: /share my location/i }));
     });
-    expect(await screen.findByText(/not within the class attendance location/)).toBeInTheDocument();
+    expect(await screen.findByText(/about 64 m from the venue \(allowed: 20 m/)).toBeInTheDocument();
+    expect(screen.getByText(/Attempts used: 1 of 5/)).toBeInTheDocument();
+  });
+
+  it('does not send an imprecise reading, explains it and lets the student retry', async () => {
+    validate.mockResolvedValue(session({ locationRequired: true }));
+    acquire.mockResolvedValueOnce({ status: 'INSUFFICIENT_ACCURACY', best: reading(1_000), samples: [reading(1_000)], stable: false, spreadM: null });
+    renderPage();
+    const user = userEvent.setup();
+    await screen.findByLabelText('Student ID');
+    await act(async () => { await user.click(screen.getByRole('button', { name: /share my location/i })); });
+    expect(await screen.findByText(/only accurate to about ±1,000 m/)).toBeInTheDocument();
+    expect(verifyLocation).not.toHaveBeenCalled();
+    // Retry with a precise reading succeeds; the verified-location attempt token is kept.
+    acquire.mockResolvedValueOnce({ status: 'ACCEPTABLE', best: reading(9), samples: [reading(9)], stable: true, spreadM: 1 });
+    verifyLocation.mockResolvedValueOnce({ attemptToken: 'attempt-loc', withinGeofence: true, distanceM: 6, accuracyM: 9, radiusM: 20, maxAccuracyM: 50 });
+    await act(async () => { await user.click(screen.getByRole('button', { name: /try again/i })); });
+    expect(await screen.findByText(/within the attendance area/)).toBeInTheDocument();
+    expect(verifyLocation.mock.calls[0][1]).toBe('attempt-1');
+  });
+
+  it('explains permission denial', async () => {
+    validate.mockResolvedValue(session({ locationRequired: true }));
+    const { GeoError, GEO_MESSAGES } = await import('@/lib/geo');
+    acquire.mockRejectedValueOnce(new GeoError('DENIED', GEO_MESSAGES.DENIED));
+    renderPage();
+    await screen.findByLabelText('Student ID');
+    await act(async () => { await userEvent.setup().click(screen.getByRole('button', { name: /share my location/i })); });
+    expect(await screen.findByText(/Location permission was denied/)).toBeInTheDocument();
   });
 
   it('submits with an idempotency key and shows the success page', async () => {

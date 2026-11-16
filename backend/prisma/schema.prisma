@@ -300,7 +300,11 @@ model OrganizationSettings {
   // Attendance defaults
   locationRequired          Boolean @default(true)
   defaultGeofenceRadiusM    Int     @default(20)
-  minGpsAccuracyM           Int     @default(100)
+  minGpsAccuracyM           Int     @default(50) /// max GPS uncertainty (m) accepted from students
+  venueCaptureMaxAccuracyM  Int     @default(30) /// max GPS uncertainty (m) for registering a venue by GPS
+  maxLocationAgeSeconds     Int     @default(30) /// readings older than this are stale
+  locationTimeoutSeconds    Int     @default(60) /// how long devices keep collecting readings
+  locationSampleCount       Int     @default(5) /// readings collected before settling for the best one
   selfieRequired            Boolean @default(true)
   requireEnrollment         Boolean @default(true)
   defaultSessionDurationMin Int     @default(60)
@@ -546,25 +550,29 @@ model Course {
 }
 
 model Class {
-  id                 String              @id @default(uuid()) @db.Uuid
-  organizationId     String              @db.Uuid
-  courseId           String?             @db.Uuid
-  academicYearId     String?             @db.Uuid
-  semesterId         String?             @db.Uuid
-  name               String
-  code               String
-  room               String?
-  defaultLatitude    Float?
-  defaultLongitude   Float?
-  status             RecordStatus        @default(ACTIVE)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  course             Course?             @relation(fields: [courseId], references: [id], onDelete: Restrict)
-  academicYear       AcademicYear?       @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
-  semester           Semester?           @relation(fields: [semesterId], references: [id], onDelete: Restrict)
-  lecturers          ClassLecturer[]
-  enrollments        Enrollment[]
-  attendanceSessions AttendanceSession[]
+  id                  String              @id @default(uuid()) @db.Uuid
+  organizationId      String              @db.Uuid
+  courseId            String?             @db.Uuid
+  academicYearId      String?             @db.Uuid
+  semesterId          String?             @db.Uuid
+  name                String
+  code                String
+  room                String?
+  defaultLatitude     Float?
+  defaultLongitude    Float?
+  /// GPS = captured on a device and within the capture accuracy policy; MAP = placed manually on a map
+  venueLocationSource String?
+  venueAccuracyM      Float?
+  venueCapturedAt     DateTime?
+  status              RecordStatus        @default(ACTIVE)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  course              Course?             @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  academicYear        AcademicYear?       @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  semester            Semester?           @relation(fields: [semesterId], references: [id], onDelete: Restrict)
+  lecturers           ClassLecturer[]
+  enrollments         Enrollment[]
+  attendanceSessions  AttendanceSession[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, id])
@@ -678,6 +686,10 @@ model Event {
   requireRegistration Boolean             @default(true)
   defaultLatitude     Float?
   defaultLongitude    Float?
+  /// GPS = captured on a device and within the capture accuracy policy; MAP = placed manually on a map
+  venueLocationSource String?
+  venueAccuracyM      Float?
+  venueCapturedAt     DateTime?
   status              RecordStatus        @default(ACTIVE)
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
@@ -721,38 +733,41 @@ model EventManager {
 // ───────────────────────────── Attendance ─────────────────────────────
 
 model AttendanceSession {
-  id                String                   @id @default(uuid()) @db.Uuid
-  organizationId    String                   @db.Uuid
-  title             String
-  classId           String?                  @db.Uuid
-  eventId           String?                  @db.Uuid
-  lecturerId        String?                  @db.Uuid
-  createdByUserId   String                   @db.Uuid
-  status            AttendanceSessionStatus  @default(ACTIVE)
-  startsAt          DateTime                 @default(now())
-  expiresAt         DateTime
-  closedAt          DateTime?
-  revokedAt         DateTime?
-  latitude          Float?
-  longitude         Float?
-  radiusM           Int
-  minAccuracyM      Int
-  locationRequired  Boolean
-  selfieRequired    Boolean
-  requireEnrollment Boolean
-  lateAfter         DateTime?
-  allowLate         Boolean                  @default(true)
-  configSnapshot    Json
-  replacesSessionId String?                  @db.Uuid
-  createdAt         DateTime                 @default(now())
-  updatedAt         DateTime                 @updatedAt
-  class             Class?                   @relation(fields: [classId], references: [id], onDelete: Restrict)
-  event             Event?                   @relation(fields: [eventId], references: [id], onDelete: Restrict)
-  lecturer          Lecturer?                @relation(fields: [lecturerId], references: [id], onDelete: Restrict)
-  qrTokens          QRToken[]
-  records           AttendanceRecord[]
-  selfies           AttendanceSelfie[]
-  verifications     AttendanceVerification[]
+  id                    String                   @id @default(uuid()) @db.Uuid
+  organizationId        String                   @db.Uuid
+  title                 String
+  classId               String?                  @db.Uuid
+  eventId               String?                  @db.Uuid
+  lecturerId            String?                  @db.Uuid
+  createdByUserId       String                   @db.Uuid
+  status                AttendanceSessionStatus  @default(ACTIVE)
+  startsAt              DateTime                 @default(now())
+  expiresAt             DateTime
+  closedAt              DateTime?
+  revokedAt             DateTime?
+  latitude              Float?
+  longitude             Float?
+  radiusM               Int
+  minAccuracyM          Int
+  locationSource        String? /// GPS | MAP — provenance of the anchor coordinates
+  locationAccuracyM     Float? /// reported uncertainty of the anchor when captured by GPS
+  maxLocationAgeSeconds Int                      @default(30)
+  locationRequired      Boolean
+  selfieRequired        Boolean
+  requireEnrollment     Boolean
+  lateAfter             DateTime?
+  allowLate             Boolean                  @default(true)
+  configSnapshot        Json
+  replacesSessionId     String?                  @db.Uuid
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  class                 Class?                   @relation(fields: [classId], references: [id], onDelete: Restrict)
+  event                 Event?                   @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  lecturer              Lecturer?                @relation(fields: [lecturerId], references: [id], onDelete: Restrict)
+  qrTokens              QRToken[]
+  records               AttendanceRecord[]
+  selfies               AttendanceSelfie[]
+  verifications         AttendanceVerification[]
 
   @@unique([organizationId, id])
   @@index([organizationId, status, expiresAt])

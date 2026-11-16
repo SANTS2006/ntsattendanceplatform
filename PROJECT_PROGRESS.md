@@ -1,6 +1,6 @@
 # NTSAttend — project progress
 
-_Last updated: 2026-11-15_
+_Last updated: 2026-11-16_
 
 ## Architecture (summary)
 
@@ -33,6 +33,7 @@ Details: [documentation/ARCHITECTURE.md](documentation/ARCHITECTURE.md).
 | 17 Cloudflare R2 backup & restore (Super Admin console) | ✅ needs R2 credentials |
 | 18 Terms/Privacy pages + required consent at sign-up | ✅ (legal review recommended) |
 | 19 Render Blueprint, Neon-only database, local database and local files removed | ✅ |
+| 20 GPS geofencing accuracy fix: venue capture gated by accuracy, manual map placement (Leaflet/OSM), multi-reading acquisition (best fresh reading, no averaging), server freshness → accuracy → distance checks, verified location carried to submit, configurable location policy with warnings, venue audit | ✅ code + automated tests; **not yet validated on real devices in a classroom** |
 
 ## Project structure
 
@@ -48,7 +49,7 @@ documentation/  Architecture, API, security, database, tenant isolation, deploym
 `init`, `tenant_integrity` (RLS, triggers, CHECKs, append-only audit), `tenant_error_codes`,
 `email_code_and_google` (PendingRegistration, nullable password, googleId, avatarUrl),
 `support_feedback_backups_imports` (EmailChangeRequest, SupportTicket/Message, Feedback, Backup, import resource, avatarKey; RLS for tickets/feedback),
-`terms_acceptance`.
+`terms_acceptance`, `location_policy` (venue source/accuracy/captured-at on classes and events; session location snapshot; venue-capture, reading-age, timeout and sample-count settings).
 
 ## API
 
@@ -80,7 +81,43 @@ See [SECURITY.md](documentation/SECURITY.md) and [TENANT_ISOLATION.md](documenta
 | Production builds (API `tsc`, web `vite build`) | passed |
 | Load burst (1,000 flows, 200 concurrency, one laptop) | 0 failures, submit p95 1.03 s; duplicate storm → 1 record |
 
+## GPS geofencing fix (2026-11-16)
+
+Root causes: (1) the lecturer's venue anchor was saved whatever its accuracy (laptops report Wi-Fi/IP
+fixes of ±1–20 km), so students in the room measured as "outside"; (2) the student page took a second
+reading at submit which the server re-checked and could contradict the verified one; (3) no freshness
+check (cached positions accepted); (4) acquisition stopped after 20 s and aborted on transient errors,
+and the server's policy was not shared with the device; (5) a 20 m radius was combined with 100 m
+allowed uncertainty, with no warnings. Haversine, coordinate order and units were checked and correct.
+Details: [ATTENDANCE_WORKFLOW.md → Location verification](documentation/ATTENDANCE_WORKFLOW.md).
+
+Action required after deploying: existing class/event venues have no source and must be re-captured
+by GPS (with a phone at the venue) or placed on the map before sessions can use them; the
+`location_policy` migration runs on the next Render deploy (`db:migrate`). Consider lowering the
+maximum student GPS uncertainty from 50 m to 25–30 m after testing in your classrooms.
+
+### Tests executed for the GPS fix (2026-11-16)
+
+| Suite | Result |
+|---|---|
+| Backend unit (`tests/unit`, incl. 6 new geo tests: accuracy matrix, boundary, freshness, venue capture, lat/lng order) | 46 / 46 passed |
+| Backend GPS integration (`tests/attendance/geofence.test.ts`, real PostgreSQL test DB) | 21 / 21 passed (over three runs: the first 15, then 6 re-run after fixing test-side issues — access-token expiry on the slow link, selfie default, expected error code) |
+| Frontend (Vitest: `geo.test.ts` 18 tests + student page) | 32 / 32 passed |
+| Type checks (backend `tsc`, frontend `tsc -b`) | passed |
+| Full backend suite (other 115 tests) | **not re-run** — ~1.6 s per query from this machine to Neon makes it take hours; run it in CI |
+| Playwright E2E (8 specs, 2 new for venue capture) | **not run** — would write to the production database (see above) |
+
 ## Known issues / limitations
+
+- **GPS accuracy is not yet proven in the field.** The new flow is covered by unit, component and API
+  tests with simulated readings only. It must be tested with real phones (Android and iOS, several
+  models) in actual classrooms before relying on it. Indoor GPS is often ±10–50 m; laptops cannot
+  register venues by GPS; GPS can be spoofed.
+- Playwright E2E specs were updated for the new flow but not run: the sandbox server reads
+  `DATABASE_URL` from `backend/.env` (production). Run them only with `DATABASE_URL` pointing at the
+  test database (seeded) — see TESTING.md.
+- From this development machine a single Neon query takes ~1.6 s, so the full backend suite takes
+  very long locally; run it in CI or closer to the database.
 
 - Neon, Cloudinary, Brevo, R2 and Google need real credentials (`backend/.env` locally, the Render env
   group in production); they were verified with unit tests and test doubles, not yet against the live

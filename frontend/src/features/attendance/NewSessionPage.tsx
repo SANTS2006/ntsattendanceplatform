@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { AlertTriangle, CheckCircle2, Crosshair, LocateFixed, MapPin, QrCode } from 'lucide-react';
+import { QrCode } from 'lucide-react';
 import { errorMessage, get, post } from '@/api/client';
 import { Button, Card, Input, PageHeader, Select, Tabs, Toggle, BackButton } from '@/components/ui';
 import { useOptions } from '@/hooks/useOptions';
-import { useCurrentLocation } from '@/hooks/useCurrentLocation';
+import { VenuePicker, type VenueValue } from '@/components/venue/VenuePicker';
 import type { ClassItem, EventItem, OrgSettings } from '@/types';
 
 const DURATIONS = [5, 10, 15, 30, 60];
@@ -42,11 +42,9 @@ export function NewSessionPage() {
   const [errors, setErrors] = useState<Errors>({});
   const [submitted, setSubmitted] = useState(false);
 
-  /** Location used for the geofence: the device fix (preferred) or the venue saved on the class/event. */
-  const geo = useCurrentLocation();
-  const [venue, setVenue] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [source, setSource] = useState<'device' | 'venue' | null>(null);
-  const autoTried = useRef(false);
+  /** Geofence anchor: a GPS reading that met the capture policy, a map placement, or the saved venue. */
+  const [venue, setVenue] = useState<VenueValue | null>(null);
+  const [venueTouched, setVenueTouched] = useState(false);
 
   useEffect(() => {
     const s = settings.data;
@@ -61,31 +59,16 @@ export function NewSessionPage() {
     setLateAfter(s.lateAfterMin ? String(s.lateAfterMin) : '');
   }, [settings.data]);
 
-  // Venue location saved on the selected class/event.
+  // Start from the venue saved on the selected class/event (with its provenance).
   useEffect(() => {
+    if (venueTouched) return;
     const row = target === 'class' ? classes.rows.find((c) => c.id === classId) : events.rows.find((e) => e.id === eventId);
-    const v = row?.defaultLatitude != null && row.defaultLongitude != null ? { latitude: Number(row.defaultLatitude), longitude: Number(row.defaultLongitude) } : null;
-    setVenue(v);
-    if (v && source !== 'device') setSource('venue');
-    if (!v && source === 'venue') setSource(null);
-  }, [classId, eventId, target, classes.rows, events.rows]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const capture = async () => {
-    const fix = await geo.locate();
-    if (fix) {
-      setSource('device');
-      setErrors((e) => ({ ...e, location: undefined }));
-    }
-  };
-
-  // Capture automatically once, as soon as we know location checks are on.
-  useEffect(() => {
-    if (!settings.data || autoTried.current || !locationRequired) return;
-    autoTried.current = true;
-    void capture();
-  }, [settings.data, locationRequired]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const point = source === 'device' && geo.fix ? { latitude: geo.fix.latitude, longitude: geo.fix.longitude } : source === 'venue' ? venue : null;
+    setVenue(
+      row?.defaultLatitude != null && row.defaultLongitude != null
+        ? { latitude: Number(row.defaultLatitude), longitude: Number(row.defaultLongitude), source: row.venueLocationSource ?? null, accuracyM: row.venueAccuracyM ?? null, capturedAt: row.venueCapturedAt ?? null }
+        : null,
+    );
+  }, [classId, eventId, target, classes.rows, events.rows, venueTouched]);
 
   const validate = (): Errors => {
     const e: Errors = {};
@@ -94,13 +77,14 @@ export function NewSessionPage() {
     if (customDuration && !intIn(customDuration, 1, 1440)) e.duration = 'Enter a duration between 1 and 1440 minutes';
     if (lateAfter && !intIn(lateAfter, 1, 1440)) e.lateAfter = 'Enter a whole number of minutes between 1 and 1440';
     if (!intIn(radius, 14, 20)) e.radius = 'Enter a radius between 14 and 20 metres';
-    if (!intIn(minAccuracy, 1, 10000)) e.minAccuracy = 'Enter an accuracy between 1 and 10,000 metres';
-    if (locationRequired && !point) e.location = 'Capture your current location (or save a venue location on the class/event) before generating the QR code.';
+    if (!intIn(minAccuracy, 5, 1000)) e.minAccuracy = 'Enter an accuracy between 5 and 1,000 metres';
+    if (locationRequired && !venue) e.location = 'Capture the venue location by GPS or select it on the map before generating the QR code.';
+    else if (locationRequired && venue && !venue.source) e.location = 'The saved venue location has not been verified. Capture it again by GPS or select it on the map.';
     return e;
   };
   useEffect(() => {
     if (submitted) setErrors(validate());
-  }, [submitted, target, classId, eventId, title, customDuration, lateAfter, radius, minAccuracy, locationRequired, source, geo.fix]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [submitted, target, classId, eventId, title, customDuration, lateAfter, radius, minAccuracy, locationRequired, venue]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = async () => {
     setSubmitted(true);
@@ -115,8 +99,10 @@ export function NewSessionPage() {
         eventId: target === 'event' ? eventId : null,
         title: title.trim() || undefined,
         durationMinutes: minutes,
-        latitude: point ? Number(point.latitude.toFixed(6)) : null,
-        longitude: point ? Number(point.longitude.toFixed(6)) : null,
+        // Raw coordinates (no rounding beyond ~1 cm) plus provenance; the server re-validates the accuracy.
+        ...(locationRequired && venue?.source
+          ? { latitude: Number(venue.latitude.toFixed(7)), longitude: Number(venue.longitude.toFixed(7)), locationSource: venue.source, locationAccuracyM: venue.accuracyM }
+          : {}),
         radiusM: Number(radius),
         minAccuracyM: Number(minAccuracy),
         locationRequired,
@@ -134,8 +120,6 @@ export function NewSessionPage() {
       setBusy(false);
     }
   };
-
-  const tone = point ? 'ok' : geo.status === 'locating' ? 'busy' : geo.error || errors.location ? 'error' : 'idle';
 
   return (
     <div className="w-full">
@@ -188,55 +172,28 @@ export function NewSessionPage() {
         <Card title="Location verification">
           <Toggle label="Require students to be at the venue" description="Students’ phones must report a location within the radius below." checked={locationRequired} onChange={setLocationRequired} />
 
-          <div
-            className={clsx(
-              'mt-3 flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between',
-              tone === 'ok' && 'border-emerald-300 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10',
-              tone === 'error' && 'border-rose-300 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10',
-              (tone === 'idle' || tone === 'busy') && 'border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-white/5',
-            )}
-            aria-live="polite"
-          >
-            <div className="flex min-w-0 items-start gap-3">
-              <span className={clsx('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', tone === 'ok' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' : tone === 'error' ? 'bg-rose-100 text-rose-600 dark:bg-rose-500/20 dark:text-rose-300' : 'bg-brand-50 text-brand-600')}>
-                {tone === 'ok' ? <CheckCircle2 className="h-5 w-5" /> : tone === 'error' ? <AlertTriangle className="h-5 w-5" /> : <MapPin className={clsx('h-5 w-5', tone === 'busy' && 'animate-bounce')} />}
-              </span>
-              <div className="min-w-0 text-sm">
-                {tone === 'busy' ? (
-                  <>
-                    <p className="font-semibold text-slate-900 dark:text-white">Getting a precise location…</p>
-                    <p className="text-xs text-slate-700 dark:text-slate-300">{geo.progress == null ? 'Waiting for GPS…' : `Improving accuracy… ±${geo.progress} m`} Stand still at the venue.</p>
-                  </>
-                ) : point ? (
-                  <>
-                    <p className="font-semibold text-slate-900 dark:text-white">{source === 'device' ? 'Your current location will be the venue' : 'Using the venue location saved on this ' + target}</p>
-                    <p className="text-xs text-slate-700 dark:text-slate-300">
-                      {source === 'device' && geo.fix ? `Accuracy ±${geo.fix.accuracy} m · ` : ''}
-                      <a className="font-medium text-brand-700" href={`https://www.openstreetmap.org/?mlat=${point.latitude}&mlon=${point.longitude}#map=18/${point.latitude}/${point.longitude}`} target="_blank" rel="noreferrer">
-                        View on map
-                      </a>
-                    </p>
-                    {source === 'device' && geo.fix && geo.fix.accuracy > Number(minAccuracy) && (
-                      <p className="mt-1 text-xs font-medium text-amber-800 dark:text-amber-300">This reading (±{geo.fix.accuracy} m) is less precise than the minimum below. Recapture from a phone at the venue, outdoors or near a window — laptops usually can’t get a precise fix.</p>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <p className="font-semibold text-slate-800">{locationRequired ? 'Location not captured yet' : 'No location (students’ positions won’t be checked)'}</p>
-                    <p className="text-xs text-slate-700 dark:text-slate-300">{geo.error ?? errors.location ?? 'Stand at the venue and use your current location.'}</p>
-                  </>
-                )}
-              </div>
+          {locationRequired && (
+            <div className="mt-3">
+              <VenuePicker
+                value={venue}
+                onChange={(v) => { setVenue(v); setVenueTouched(true); }}
+                radiusM={Number(radius) || 20}
+                onRadiusChange={(r) => setRadius(String(r))}
+                label={`${target === 'class' ? 'Classroom' : 'Event venue'} location`}
+              />
+              {errors.location && <p className="mt-2 text-sm font-medium text-rose-600">{errors.location}</p>}
             </div>
-            <Button variant="secondary" className="shrink-0" loading={geo.status === 'locating'} onClick={capture} icon={point && source === 'device' ? <Crosshair className="h-4 w-4" /> : <LocateFixed className="h-4 w-4" />}>
-              {point && source === 'device' ? 'Recapture' : 'Use my current location'}
-            </Button>
-          </div>
+          )}
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <Input label="Allowed radius (metres)" type="number" min={14} max={20} value={radius} error={errors.radius} hint="Students must be within 14–20 m of this location." onChange={(e) => setRadius(e.target.value)} />
-            <Input label="Minimum GPS accuracy (metres)" type="number" min={1} max={10000} value={minAccuracy} error={errors.minAccuracy} onChange={(e) => setMinAccuracy(e.target.value)} hint="Readings less accurate than this are rejected." />
+            <Input label="Maximum student GPS uncertainty (metres)" type="number" min={5} max={1000} value={minAccuracy} error={errors.minAccuracy} onChange={(e) => setMinAccuracy(e.target.value)} hint="Student readings less precise than this are rejected (they can retry)." />
           </div>
+          {Number(minAccuracy) > Number(radius) && (
+            <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+              The allowed student uncertainty (±{minAccuracy} m) is larger than the {radius} m radius. Readings that imprecise can place a student who is in the room outside the boundary (or the reverse). A lower value (for example 25–30 m) gives fairer results but more students may need to retry.
+            </p>
+          )}
         </Card>
 
         <Card title="Verification rules">
@@ -246,7 +203,7 @@ export function NewSessionPage() {
 
         </div>
         <div className="flex justify-end xl:col-span-2">
-          <Button size="lg" className="w-full sm:w-auto" loading={busy} disabled={geo.status === 'locating'} onClick={submit} icon={<QrCode className="h-5 w-5" />}>
+          <Button size="lg" className="w-full sm:w-auto" loading={busy} onClick={submit} icon={<QrCode className="h-5 w-5" />}>
             Generate QR code
           </Button>
         </div>

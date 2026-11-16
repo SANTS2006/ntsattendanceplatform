@@ -8,6 +8,9 @@ import { env } from '../config/env.js';
  */
 export const prisma = new PrismaClient({
   log: env.isProd ? ['error'] : ['error', 'warn'],
+  // Multi-step transactions (e.g. creating an organization with its roles) make several round
+  // trips; over a high-latency link (developer machine → remote Neon) Prisma's 5 s default expired.
+  transactionOptions: { maxWait: 10_000, timeout: 30_000 },
 });
 
 export type Db = typeof prisma;

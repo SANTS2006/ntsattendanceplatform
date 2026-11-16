@@ -12,6 +12,8 @@ export type AttemptClaims = {
   ses: string; // attendance session id
   qrt: string; // QR token id (not the raw token)
   stu?: string; // verified student id
+  /** Location the server verified for this attempt (reused at submit, never re-read). */
+  loc?: { lat: number; lng: number; acc: number; at: number };
 };
 
 export function signAccessToken(c: Omit<AccessClaims, 'typ'>) {

@@ -66,6 +66,7 @@ test('register → 6-character email code → account created → onboard a new 
 
 test('lecturer QR session → student check-in on a phone → live dashboard update', async ({ page, browser }) => {
   test.skip(!SEED_PASSWORD, 'Seed the database and set SEED_PASSWORD');
+  test.setTimeout(180_000);
   await login(page, OWNER, SEED_PASSWORD!);
   await page.goto('/app/attendance/new');
   await page.getByLabel('Class').selectOption({ label: 'CS201 · Group A' });
@@ -84,7 +85,8 @@ test('lecturer QR session → student check-in on a phone → live dashboard upd
   const student = await phone.newPage();
   await student.goto(new URL(qrUrl).pathname);
   await student.getByRole('button', { name: 'Share my location' }).click();
-  await expect(student.getByText('You are within the attendance area.')).toBeVisible();
+  // The device collects fresh readings (up to the session's timeout) before the server decides.
+  await expect(student.getByText('You are within the attendance area.')).toBeVisible({ timeout: 75_000 });
   const idInput = student.getByRole('textbox', { name: 'Student ID' });
   const studentNumber = `202400${String(10 + Math.floor(Math.random() * 20)).padStart(2, '0')}`;
   await idInput.pressSequentially(studentNumber.slice(0, 7));
@@ -113,8 +115,43 @@ test('student outside the geofence is rejected', async ({ page, browser }) => {
   const student = await phone.newPage();
   await student.goto(new URL(qrUrl).pathname);
   await student.getByRole('button', { name: 'Share my location' }).click();
-  await expect(student.getByText('You are not within the class attendance location. You cannot record your attendance.')).toBeVisible();
+  // ~1.7 km north: the server measures the distance and explains it; the student may retry.
+  await expect(student.getByText(/You appear to be about \d[\d,]* m from the venue \(allowed: \d+ m/)).toBeVisible({ timeout: 75_000 });
+  await expect(student.getByRole('button', { name: /try again/i })).toBeVisible();
   await phone.close();
+});
+
+test('lecturer venue capture: an imprecise (±20 km) reading is refused; a precise one can be saved', async ({ browser }) => {
+  test.skip(!SEED_PASSWORD, 'Seed the database and set SEED_PASSWORD');
+  test.setTimeout(240_000);
+  // Lecturer on a phone at the venue, first with a laptop-style network fix (±20,000 m).
+  const ctx = await browser.newContext({ geolocation: { latitude: 8.4844, longitude: -13.2344, accuracy: 20_000 }, permissions: ['geolocation'] });
+  const page = await ctx.newPage();
+  await login(page, OWNER, SEED_PASSWORD!);
+  await page.goto('/app/attendance/new');
+  await page.getByLabel('Class').selectOption({ label: 'CS201 · Group A' });
+  await page.getByRole('button', { name: /Capture (location|again) \(GPS\)/ }).click();
+  await expect(page.getByText('Obtaining your current location. Please wait.')).toBeVisible();
+  await expect(page.getByText(/Your device reported location uncertainty of approximately 20,000 metres\. We cannot use this reading to register a classroom\./)).toBeVisible({ timeout: 90_000 });
+  // Generating now would use the class's saved venue, not the rejected reading; retry with a GPS fix.
+  await ctx.setGeolocation({ latitude: 8.48441, longitude: -13.23441, accuracy: 8 });
+  await page.getByRole('button', { name: 'Retry GPS capture' }).click();
+  await expect(page.getByText('Location accuracy is acceptable. You can save this classroom location.')).toBeVisible({ timeout: 90_000 });
+  await expect(page.getByText('±8 m')).toBeVisible();
+  await page.getByRole('button', { name: 'Generate QR code' }).click();
+  await page.waitForURL(/\/app\/attendance\/[0-9a-f-]{36}/);
+  await ctx.close();
+});
+
+test('lecturer venue on the map is labelled as manual, not GPS-verified', async ({ page }) => {
+  test.skip(!SEED_PASSWORD, 'Seed the database and set SEED_PASSWORD');
+  await login(page, OWNER, SEED_PASSWORD!);
+  await page.goto('/app/attendance/new');
+  await page.getByLabel('Class').selectOption({ label: 'CS201 · Group A' });
+  await page.getByRole('button', { name: 'Select on map' }).click();
+  await page.getByRole('button', { name: 'Use this location' }).click();
+  await expect(page.getByText('Location selected on the map')).toBeVisible();
+  await expect(page.getByText(/not a GPS-verified reading/)).toBeVisible();
 });
 
 test('invalid QR codes show an error screen', async ({ page }) => {

@@ -74,7 +74,7 @@ export async function seedTenant(name = 'Alpha University') {
   const program = (await api(owner, 'post', '/programs', { name: 'BSc Computer Science', code: 'BSCCS', departmentId: dept.id })).body.data;
   const level = (await api(owner, 'post', '/levels', { name: 'Year 2', rank: 2 })).body.data;
   const course = (await api(owner, 'post', '/courses', { code: 'CS201', title: 'Data Structures', departmentId: dept.id, programId: program.id, levelId: level.id })).body.data;
-  const cls = (await api(owner, 'post', '/classes', { name: 'Group A', code: 'CS201-A', courseId: course.id, defaultLatitude: 8.4844, defaultLongitude: -13.2344 })).body.data;
+  const cls = (await api(owner, 'post', '/classes', { name: 'Group A', code: 'CS201-A', courseId: course.id, defaultLatitude: 8.4844, defaultLongitude: -13.2344, venueLocationSource: 'MAP' })).body.data;
   const students = [];
   for (let i = 1; i <= 3; i++) {
     const s = (

@@ -203,7 +203,11 @@ function AttendanceTab() {
   const up = (v: Partial<OrgSettings>) => setS({ ...s, ...v });
   const attErr: Record<string, string | undefined> = {
     defaultGeofenceRadiusM: NUM_RANGE(s.defaultGeofenceRadiusM, 14, 20, 'radius'),
-    minGpsAccuracyM: NUM_RANGE(s.minGpsAccuracyM, 1, 10000, 'GPS accuracy'),
+    minGpsAccuracyM: NUM_RANGE(s.minGpsAccuracyM, 5, 1000, 'student GPS uncertainty'),
+    venueCaptureMaxAccuracyM: NUM_RANGE(s.venueCaptureMaxAccuracyM, 5, 100, 'venue capture uncertainty'),
+    maxLocationAgeSeconds: NUM_RANGE(s.maxLocationAgeSeconds, 5, 300, 'maximum reading age'),
+    locationTimeoutSeconds: NUM_RANGE(s.locationTimeoutSeconds, 10, 180, 'acquisition timeout'),
+    locationSampleCount: NUM_RANGE(s.locationSampleCount, 1, 20, 'number of readings'),
     maxFailedLocationAttempts: NUM_RANGE(s.maxFailedLocationAttempts, 1, 100, 'number of attempts'),
     defaultQrExpiryMin: NUM_RANGE(s.defaultQrExpiryMin, 1, 1440, 'QR expiry'),
     defaultSessionDurationMin: NUM_RANGE(s.defaultSessionDurationMin, 1, 1440, 'session duration'),
@@ -218,9 +222,23 @@ function AttendanceTab() {
         <Toggle label="Location verification is mandatory" description="Students must share a location within the session radius." checked={s.locationRequired} onChange={(v) => up({ locationRequired: v })} />
         <div className="mt-3 grid gap-4 sm:grid-cols-2">
           <Input label="Default geofence radius (m)" hint="Between 14 and 20 metres." type="number" min={14} max={20} error={ae('defaultGeofenceRadiusM')} value={s.defaultGeofenceRadiusM} onChange={num('defaultGeofenceRadiusM')} />
-          <Input label="Minimum GPS accuracy (m)" type="number" min={1} max={10000} error={ae('minGpsAccuracyM')} value={s.minGpsAccuracyM} onChange={num('minGpsAccuracyM')} />
-          <Input label="Max failed location checks" type="number" min={1} max={100} error={ae('maxFailedLocationAttempts')} value={s.maxFailedLocationAttempts} onChange={num('maxFailedLocationAttempts')} hint="Per device, per session, within 15 minutes." />
+          <Input label="Max student GPS uncertainty (m)" type="number" min={5} max={1000} error={ae('minGpsAccuracyM')} value={s.minGpsAccuracyM} onChange={num('minGpsAccuracyM')} hint="Student readings less precise than this are rejected (they can retry)." />
+          <Input label="Max venue capture uncertainty (m)" type="number" min={5} max={100} error={ae('venueCaptureMaxAccuracyM')} value={s.venueCaptureMaxAccuracyM} onChange={num('venueCaptureMaxAccuracyM')} hint="A classroom can only be registered by GPS when the reading is this precise." />
+          <Input label="Max reading age (seconds)" type="number" min={5} max={300} error={ae('maxLocationAgeSeconds')} value={s.maxLocationAgeSeconds} onChange={num('maxLocationAgeSeconds')} hint="Older (cached) readings are rejected." />
+          <Input label="Acquisition timeout (seconds)" type="number" min={10} max={180} error={ae('locationTimeoutSeconds')} value={s.locationTimeoutSeconds} onChange={num('locationTimeoutSeconds')} hint="How long devices keep collecting readings." />
+          <Input label="Readings collected" type="number" min={1} max={20} error={ae('locationSampleCount')} value={s.locationSampleCount} onChange={num('locationSampleCount')} hint="Devices keep the most precise one (never an average)." />
+          <Input label="Max failed location checks" type="number" min={1} max={100} error={ae('maxFailedLocationAttempts')} value={s.maxFailedLocationAttempts} onChange={num('maxFailedLocationAttempts')} hint="Retry limit per device, per session, within 15 minutes." />
         </div>
+        {s.minGpsAccuracyM > s.defaultGeofenceRadiusM && (
+          <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+            The allowed student uncertainty (±{s.minGpsAccuracyM} m) is larger than the {s.defaultGeofenceRadiusM} m radius. Readings that imprecise can place students who are in the room outside the boundary. Consider 25–30 m, and test on real devices in your classrooms — not every phone achieves it indoors.
+          </p>
+        )}
+        {s.venueCaptureMaxAccuracyM > s.defaultGeofenceRadiusM && (
+          <p className="mt-2 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+            Venues may be registered with readings up to ±{s.venueCaptureMaxAccuracyM} m, which is larger than the {s.defaultGeofenceRadiusM} m radius — a misplaced anchor will reject students who are present. Keep this at or below the radius, or place venues on the map.
+          </p>
+        )}
       </Card>
       <Card title="Sessions & QR codes">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -238,6 +256,7 @@ function AttendanceTab() {
       <div className="flex items-end justify-end">
         <Button loading={save.isPending} onClick={() => { setTried(true); const e = firstError(attErr); if (e) return toast.error(e); save.mutate({
           locationRequired: s.locationRequired, defaultGeofenceRadiusM: s.defaultGeofenceRadiusM, minGpsAccuracyM: s.minGpsAccuracyM, maxFailedLocationAttempts: s.maxFailedLocationAttempts,
+          venueCaptureMaxAccuracyM: s.venueCaptureMaxAccuracyM, maxLocationAgeSeconds: s.maxLocationAgeSeconds, locationTimeoutSeconds: s.locationTimeoutSeconds, locationSampleCount: s.locationSampleCount,
           defaultQrExpiryMin: s.defaultQrExpiryMin, defaultSessionDurationMin: s.defaultSessionDurationMin, lateAfterMin: s.lateAfterMin, allowLateAttendance: s.allowLateAttendance,
           requireEnrollment: s.requireEnrollment, selfieRequired: s.selfieRequired, imageRetentionDays: s.imageRetentionDays,
         }); }}>Save attendance settings</Button>

@@ -83,6 +83,10 @@ export type OrgSettings = {
   locationRequired: boolean;
   defaultGeofenceRadiusM: number;
   minGpsAccuracyM: number;
+  venueCaptureMaxAccuracyM: number;
+  maxLocationAgeSeconds: number;
+  locationTimeoutSeconds: number;
+  locationSampleCount: number;
   selfieRequired: boolean;
   requireEnrollment: boolean;
   defaultSessionDurationMin: number;
@@ -122,6 +126,9 @@ export type ClassItem = {
   status: string;
   courseId: string | null;
   defaultLatitude: number | null;
+  venueLocationSource?: 'GPS' | 'MAP' | null;
+  venueAccuracyM?: number | null;
+  venueCapturedAt?: string | null;
   defaultLongitude: number | null;
   course: { id: string; code: string; title: string } | null;
   semester: Ref | null;
@@ -138,6 +145,9 @@ export type EventItem = {
   endsAt: string;
   requireRegistration: boolean;
   defaultLatitude: number | null;
+  venueLocationSource?: 'GPS' | 'MAP' | null;
+  venueAccuracyM?: number | null;
+  venueCapturedAt?: string | null;
   defaultLongitude: number | null;
   status: string;
   _count?: { participants: number; attendanceSessions: number };

@@ -16,4 +16,6 @@ process.env.DIRECT_URL = process.env.TEST_DIRECT_URL ?? process.env.TEST_DATABAS
 process.env.RATE_LIMIT_DISABLED ??= 'true';
 process.env.APP_URL ??= 'http://localhost:5173';
 process.env.API_URL ??= 'http://localhost:4000';
-delete process.env.REDIS_URL;
+// Blank rather than deleted: Prisma's client loads backend/.env for any variable that is *missing*,
+// which would silently reconnect tests to the real Redis (minutes of latency per test file).
+process.env.REDIS_URL = '';

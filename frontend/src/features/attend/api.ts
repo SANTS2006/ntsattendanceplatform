@@ -1,4 +1,4 @@
-import { bestPosition, GeoError } from '@/lib/geo';
+import { readingPayload, type Reading } from '@/lib/geo';
 import { http, toApiError, type ApiSuccess } from '@/api/client';
 
 /** Anonymous student attendance API (no account; chained by a short-lived attempt token). */
@@ -28,6 +28,8 @@ export type ValidateResult = {
     selfieRequired: boolean;
     radiusM: number;
     minAccuracyM: number;
+    /** The exact policy the server enforces (null when location is not required). */
+    locationPolicy: LocationPolicy | null;
   };
   studentIdFormat: StudentIdFormat;
 };
@@ -53,6 +55,10 @@ export type SuccessResult = {
 };
 
 export type Coords = { latitude: number; longitude: number; accuracy: number };
+export type LocationPolicy = {
+  radiusM: number; maxAccuracyM: number; maxLocationAgeSeconds: number; timeoutSeconds: number; sampleCount: number; maxAttempts: number; venueSource: 'GPS' | 'MAP' | null;
+};
+export type LocationCheck = { attemptToken: string; withinGeofence: boolean; distanceM: number | null; accuracyM: number | null; radiusM: number; maxAccuracyM: number };
 
 const base = (token: string) => `/public/attendance/${encodeURIComponent(token)}`;
 const call = async <T>(p: Promise<{ data: ApiSuccess<T> }>) => {
@@ -67,10 +73,8 @@ export const attendApi = {
   validate: (token: string) => call<ValidateResult>(http.post(`${base(token)}/validate`)),
   verifyStudent: (token: string, attempt: string, studentId: string) =>
     call<{ attemptToken: string; student: VerifiedStudent }>(http.post(`${base(token)}/verify-student`, { studentId }, { headers: { 'X-Attempt-Token': attempt } })),
-  verifyLocation: (token: string, attempt: string, c: Coords) =>
-    call<{ withinGeofence: boolean; distanceM: number | null; accuracyM: number | null; radiusM: number }>(
-      http.post(`${base(token)}/verify-location`, c, { headers: { 'X-Attempt-Token': attempt } }),
-    ),
+  verifyLocation: (token: string, attempt: string, reading: Reading) =>
+    call<LocationCheck>(http.post(`${base(token)}/verify-location`, readingPayload(reading), { headers: { 'X-Attempt-Token': attempt } })),
   uploadSelfie: (token: string, attempt: string, blob: Blob) => {
     const fd = new FormData();
     fd.append('file', blob, 'selfie.jpg');
@@ -96,9 +100,3 @@ export function formatSatisfied(value: string, f: StudentIdFormat): boolean {
   return re.test(body);
 }
 
-/** Waits (up to 20 s) for a precise GPS fix and keeps the most accurate reading. */
-export function getPosition(onProgress?: (accuracy: number) => void): Promise<Coords> {
-  return bestPosition({ targetAccuracy: 15, maxWaitMs: 20_000, onProgress: (f) => onProgress?.(f.accuracy) }).catch((e) => {
-    throw Object.assign(new Error(e instanceof Error ? e.message : 'location error'), { code: e instanceof GeoError ? (e.code === 'INSECURE' ? 'UNSUPPORTED' : e.code) : 'UNAVAILABLE' });
-  });
-}

@@ -9,8 +9,8 @@ import { Button } from '@/components/ui';
 import { Logo } from '@/components/Logo';
 import { ThemeToggle } from '@/theme/ThemeProvider';
 import { SelfieCapture } from './SelfieCapture';
-import { locationPermission } from '@/lib/geo';
-import { attendApi, formatSatisfied, getPosition, type Coords, type SuccessResult, type ValidateResult, type VerifiedStudent } from './api';
+import { acquireLocation, GEO_MESSAGES, GeoError, locationPermission } from '@/lib/geo';
+import { attendApi, formatSatisfied, type Coords, type SuccessResult, type ValidateResult, type VerifiedStudent } from './api';
 
 type Fatal = { code: string; title: string; message: string; icon: ReactNode; retry?: boolean };
 
@@ -152,7 +152,7 @@ export function AttendPage() {
   const [offset, setOffset] = useState(0);
 
   // Location
-  const [coords, setCoords] = useState<Coords | null>(null);
+  const [, setCoords] = useState<Coords | null>(null);
   const [locState, setLocState] = useState<'idle' | 'locating' | 'checking' | 'ok' | 'error'>('idle');
   const [locError, setLocError] = useState<{ code: string; message: string } | null>(null);
 
@@ -209,31 +209,61 @@ export function AttendPage() {
     void locationPermission().then(setPermission);
   }, []);
 
+  const [locSamples, setLocSamples] = useState(0);
+  const [locFailures, setLocFailures] = useState(0);
+
+  /**
+   * Location step: collect fresh readings, keep the most precise one, then let the server decide
+   * (freshness → accuracy → distance). A single poor reading never fails the student outright:
+   * they see why and can retry until the session's attempt limit.
+   */
   async function locate() {
-    if (!attempt) return;
+    if (!attempt || !info) return;
+    const policy = info.session.locationPolicy;
     setLocError(null);
     setLocAccuracy(null);
+    setLocSamples(0);
     setLocState('locating');
     try {
-      const c = await getPosition(setLocAccuracy);
-      setCoords(c);
+      const r = await acquireLocation({
+        targetAccuracyM: Math.min(policy?.maxAccuracyM ?? 50, 20),
+        timeoutMs: (policy?.timeoutSeconds ?? 60) * 1000,
+        maxAgeMs: (policy?.maxLocationAgeSeconds ?? 30) * 1000,
+        maxSamples: policy?.sampleCount ?? 5,
+        onSample: (p) => { setLocSamples(p.samples); if (p.best) setLocAccuracy(Math.round(p.best.accuracy)); },
+      });
+      if (r.best.accuracy > (policy?.maxAccuracyM ?? Infinity)) {
+        // Too imprecise to judge: explain and let them retry (the server would reject it anyway).
+        setLocState('error');
+        setLocFailures((n) => n + 1);
+        setLocError({
+          code: 'GPS_ACCURACY_INSUFFICIENT',
+          message: `Your location is only accurate to about ±${Math.round(r.best.accuracy).toLocaleString('en')} m, but this session needs ±${policy!.maxAccuracyM} m or better. Turn on precise location (GPS), stand still for a few seconds and try again.`,
+        });
+        return;
+      }
+      setCoords({ latitude: r.best.latitude, longitude: r.best.longitude, accuracy: r.best.accuracy });
       setLocState('checking');
-      await attendApi.verifyLocation(token, attempt, c);
+      const check = await attendApi.verifyLocation(token, attempt, r.best);
+      setAttempt(check.attemptToken); // carries the server-verified location to the next steps
       setLocState('ok');
     } catch (e) {
       setLocState('error');
-      const code = (e as { code?: string }).code;
       if (e instanceof ApiError) {
         if (toFatal(e)) return;
+        setLocFailures((n) => n + 1);
+        const d = e.errors as { distanceM?: number; accuracyM?: number; radiusM?: number; maxAccuracyM?: number };
+        const message =
+          e.code === 'OUTSIDE_GEOFENCE' && d.distanceM != null
+            ? `You appear to be about ${d.distanceM} m from the venue (allowed: ${d.radiusM} m${d.accuracyM != null ? `; your reading was ±${d.accuracyM} m` : ''}). If you are in the room, wait a few seconds for GPS to settle and try again.`
+            : e.code === 'GPS_ACCURACY_INSUFFICIENT' && d.accuracyM != null
+              ? `Your location is only accurate to about ±${d.accuracyM} m (this session needs ±${d.maxAccuracyM} m or better). Turn on precise location, stand still and try again.`
+              : e.message;
+        setLocError({ code: e.code, message });
+      } else if (e instanceof GeoError) {
         setLocError({ code: e.code, message: e.message });
-      } else if (code === 'DENIED') {
-        setLocError({ code: 'DENIED', message: 'Location permission was denied. Allow location access for this site in your browser settings, then try again.' });
-      } else if (code === 'TIMEOUT') {
-        setLocError({ code: 'TIMEOUT', message: 'Getting your location took too long. Move closer to a window or outdoors and try again.' });
-      } else if (code === 'UNSUPPORTED') {
-        setLocError({ code: 'UNSUPPORTED', message: 'This browser does not support location. Use a recent version of Chrome or Safari.' });
       } else {
-        setLocError({ code: 'UNAVAILABLE', message: 'Your location is unavailable. Turn on location services and try again.' });
+        setLocError({ code: 'UNAVAILABLE', message: GEO_MESSAGES.UNAVAILABLE });
       }
     }
   }
@@ -284,13 +314,9 @@ export function AttendPage() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      // Fresh coordinates at submit time; the server re-checks the geofence.
-      let c = coords;
-      if (needLocation) {
-        c = await getPosition().catch(() => coords);
-        if (c) setCoords(c);
-      }
-      const r = await attendApi.submit(token, attempt, idemKey, { ...(c ?? {}), selfieId });
+      // The location verified by the server earlier is carried in the attempt token — no second
+      // reading here, so a later (different) reading cannot contradict the verified one.
+      const r = await attendApi.submit(token, attempt, idemKey, { selfieId });
       setResult(r);
       if (r.confirmationToken) {
         try {
@@ -368,12 +394,18 @@ export function AttendPage() {
               )}
               {locState === 'locating' && (
                 <p className="mb-3 text-sm text-slate-600" aria-live="polite">
-                  {locAccuracy == null ? 'Finding your position…' : `Improving accuracy… ±${locAccuracy} m`} For the best result, stand still near a window or outdoors.
+                  {locAccuracy == null ? 'Finding your position…' : `Reading ${locSamples}: best accuracy ±${locAccuracy} m`} — stand still; this can take up to {info.session.locationPolicy?.timeoutSeconds ?? 60} seconds.
                 </p>
               )}
               {locError && (
                 <div className="mb-3 flex gap-2 rounded-lg bg-rose-50 p-3 text-sm text-rose-700" role="alert">
-                  <MapPinOff className="mt-0.5 h-4 w-4 shrink-0" /> {locError.message}
+                  <MapPinOff className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    {locError.message}
+                    {info.session.locationPolicy && locFailures > 0 && locError.code !== 'DENIED' && (
+                      <span className="mt-1 block text-xs font-semibold">Attempts used: {locFailures} of {info.session.locationPolicy.maxAttempts}.</span>
+                    )}
+                  </span>
                 </div>
               )}
               <Button size="lg" className="w-full" onClick={locate} loading={locState === 'locating' || locState === 'checking'} icon={<MapPin className="h-5 w-5" />}>

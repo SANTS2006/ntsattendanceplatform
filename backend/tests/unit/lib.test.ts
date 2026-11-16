@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkLocation, haversineMeters, clampRadius } from '../../src/lib/geo.js';
+import { checkFreshness, checkLocation, checkVenueReading, clampRadius, haversineMeters, VENUE_MESSAGES } from '../../src/lib/geo.js';
 import { normalizeStudentId, publicStudentIdFormat, validateStudentId, type StudentIdConfig } from '../../src/lib/studentId.js';
 import { generateTotpSecret, totp, verifyTotp } from '../../src/lib/totp.js';
 import { decrypt, encrypt, referenceNumber } from '../../src/lib/crypto.js';
@@ -51,6 +51,56 @@ describe('haversine / geofence', () => {
     const r = checkLocation(policy, { latitude: 8.4844, longitude: -13.2344, accuracy: 0 });
     expect(r.flags).toContain('ACCURACY_IMPLAUSIBLY_PRECISE');
     expect(r.flags).toContain('COORDINATES_IDENTICAL_TO_ANCHOR');
+  });
+});
+
+describe('GPS accuracy, freshness and venue capture', () => {
+  const anchor = { latitude: 8.4844, longitude: -13.2344 };
+  const north = (m: number) => ({ latitude: anchor.latitude + m / 111_195, longitude: anchor.longitude });
+  const policy = { required: true, ...anchor, radiusM: 20, minAccuracyM: 50 };
+
+  it('uses degrees and metres with latitude/longitude in the right order', () => {
+    // 1° of longitude at the equator ≈ 111.2 km; at 60° N it is half that.
+    expect(haversineMeters(0, 0, 0, 1)).toBeCloseTo(111_195, -2);
+    expect(haversineMeters(60, 0, 60, 1)).toBeCloseTo(55_597, -2);
+    // Swapping lat/lng for a Freetown point gives a wildly different (wrong) distance.
+    expect(haversineMeters(8.4844, -13.2344, -13.2344, 8.4844)).toBeGreaterThan(2_000_000);
+    expect(haversineMeters(anchor.latitude, anchor.longitude, north(15).latitude, north(15).longitude)).toBeCloseTo(15, 0);
+  });
+
+  it.each([
+    [5, true], [20, true], [50, true], [100, false], [1_000, false], [20_000, false],
+  ])('student reading ±%i m against a ±50 m policy → accepted=%s', (acc, ok) => {
+    const r = checkLocation(policy, { ...north(5), accuracy: acc });
+    expect(r.ok).toBe(ok);
+    if (!r.ok) expect(r.code).toBe('GPS_ACCURACY_INSUFFICIENT');
+  });
+
+  it('decides the boundary on distance alone; uncertainty never widens the radius', () => {
+    expect(checkLocation(policy, { ...north(19.9), accuracy: 5 })).toMatchObject({ ok: true, verified: true });
+    expect(checkLocation(policy, { ...north(20.2), accuracy: 5 })).toMatchObject({ ok: false, code: 'OUTSIDE_GEOFENCE' });
+    expect(checkLocation(policy, { ...north(30), accuracy: 45 })).toMatchObject({ ok: false, code: 'OUTSIDE_GEOFENCE' });
+  });
+
+  it('rejects stale readings and tolerates missing or skewed timestamps with a flag', () => {
+    const now = Date.now();
+    expect(checkFreshness({ timestamp: now - 2_000, clientTime: now }, 30)).toMatchObject({ ok: true, ageMs: 2_000 });
+    expect(checkFreshness({ timestamp: now - 31_000, clientTime: now }, 30)).toMatchObject({ ok: false, code: 'STALE_LOCATION', ageMs: 31_000 });
+    expect(checkFreshness({}, 30)).toMatchObject({ ok: true, flags: ['NO_READING_TIMESTAMP'] });
+    expect(checkFreshness({ timestamp: now + 60_000, clientTime: now }, 30)).toMatchObject({ ok: true, flags: ['READING_TIMESTAMP_IN_FUTURE'] });
+  });
+
+  it('venue capture: only precise GPS readings or explicit map placements can become an anchor', () => {
+    const cap = { maxCaptureAccuracyM: 30 };
+    expect(checkVenueReading(cap, { ...anchor, source: 'GPS', accuracy: 12 })).toEqual({ ok: true, source: 'GPS', accuracyM: 12 });
+    expect(checkVenueReading(cap, { ...anchor, source: 'GPS', accuracy: 30 })).toMatchObject({ ok: true });
+    expect(checkVenueReading(cap, { ...anchor, source: 'GPS', accuracy: 20_000 })).toEqual({ ok: false, code: 'VENUE_ACCURACY_INSUFFICIENT', accuracyM: 20_000 });
+    expect(checkVenueReading(cap, { ...anchor, source: 'GPS' })).toMatchObject({ ok: false, code: 'VENUE_ACCURACY_REQUIRED' });
+    expect(checkVenueReading(cap, { ...anchor })).toMatchObject({ ok: false, code: 'VENUE_SOURCE_REQUIRED' });
+    expect(checkVenueReading(cap, { latitude: 0, longitude: 200, source: 'MAP' })).toMatchObject({ ok: false, code: 'INVALID_COORDINATES' });
+    // A map placement is accepted but carries no GPS accuracy (it is not GPS-verified).
+    expect(checkVenueReading(cap, { ...anchor, source: 'MAP', accuracy: 3 })).toEqual({ ok: true, source: 'MAP', accuracyM: null });
+    expect(VENUE_MESSAGES.VENUE_ACCURACY_INSUFFICIENT(20_000, 30)).toContain('approximately 20,000 metres');
   });
 });
 

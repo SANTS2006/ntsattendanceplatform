@@ -9,6 +9,6 @@ export default defineConfig({
     // Integration tests share one PostgreSQL test database.
     fileParallelism: false,
     testTimeout: 30_000,
-    hookTimeout: 60_000,
+    hookTimeout: 120_000,
   },
 });

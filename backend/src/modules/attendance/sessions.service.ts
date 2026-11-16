@@ -1,11 +1,11 @@
-import { clampRadius } from '../../lib/geo.js';
+import { checkVenueReading, clampRadius, VENUE_MESSAGES } from '../../lib/geo.js';
 import type { Request } from 'express';
 import type { AttendanceSession, Prisma } from '@prisma/client';
 import { env } from '../../config/env.js';
 import { emitToSession } from '../../infra/realtime.js';
 import { imageStorage } from '../../infra/storage.js';
 import { randomToken, sha256 } from '../../lib/crypto.js';
-import { badRequest, conflict, notFound } from '../../lib/errors.js';
+import { badRequest, conflict, notFound, AppError } from '../../lib/errors.js';
 import { dateInZone, timeInZone } from '../../lib/time.js';
 import type { TenantContext } from '../../middleware/context.js';
 import { audit } from '../audit/audit.service.js';
@@ -25,6 +25,8 @@ export type CreateSessionInput = {
   durationMinutes?: number;
   latitude?: number | null;
   longitude?: number | null;
+  locationSource?: 'GPS' | 'MAP';
+  locationAccuracyM?: number | null;
   radiusM?: number;
   minAccuracyM?: number;
   locationRequired?: boolean;
@@ -58,10 +60,41 @@ export async function createSession(ctx: TenantContext, input: CreateSessionInpu
   const now = new Date();
   const duration = input.durationMinutes ?? settings.defaultQrExpiryMin;
   const locationRequired = input.locationRequired ?? settings.locationRequired;
-  const latitude = input.latitude ?? ('defaultLatitude' in target ? target.defaultLatitude : null) ?? null;
-  const longitude = input.longitude ?? ('defaultLongitude' in target ? target.defaultLongitude : null) ?? null;
+  // Geofence anchor: a reading captured now (must meet the capture policy) or the saved venue.
+  let latitude: number | null = null;
+  let longitude: number | null = null;
+  let locationSource: string | null = null;
+  let locationAccuracyM: number | null = null;
+  if (input.latitude != null || input.longitude != null) {
+    const v = checkVenueReading(
+      { maxCaptureAccuracyM: settings.venueCaptureMaxAccuracyM },
+      { latitude: input.latitude, longitude: input.longitude, source: input.locationSource, accuracy: input.locationAccuracyM },
+    );
+    if (!v.ok) {
+      throw new AppError(v.code === 'VENUE_ACCURACY_INSUFFICIENT' ? 422 : 400, v.code, VENUE_MESSAGES[v.code](v.accuracyM, settings.venueCaptureMaxAccuracyM), {
+        ...(v.accuracyM != null ? { accuracyM: Math.round(v.accuracyM) } : {}), maxAccuracyM: settings.venueCaptureMaxAccuracyM,
+      });
+    }
+    latitude = input.latitude!;
+    longitude = input.longitude!;
+    locationSource = v.source;
+    locationAccuracyM = v.accuracyM;
+  } else if ('defaultLatitude' in target && target.defaultLatitude != null && target.defaultLongitude != null) {
+    const t = target as { defaultLatitude: number; defaultLongitude: number; venueLocationSource: string | null; venueAccuracyM: number | null };
+    if (!t.venueLocationSource) {
+      if (locationRequired) {
+        throw new AppError(422, 'VENUE_NOT_VERIFIED',
+          'The saved venue location has not been verified (it was saved before GPS accuracy checks). Capture it again by GPS at the venue, or set it on the map.');
+      }
+    } else {
+      latitude = t.defaultLatitude;
+      longitude = t.defaultLongitude;
+      locationSource = t.venueLocationSource;
+      locationAccuracyM = t.venueAccuracyM;
+    }
+  }
   if (locationRequired && (latitude == null || longitude == null)) {
-    throw badRequest('Capture or enter the attendance location, or disable location verification', 'LOCATION_REQUIRED');
+    throw badRequest('Capture the venue location by GPS, select it on the map, or turn off location verification', 'LOCATION_REQUIRED');
   }
   const lateAfterMin = input.lateAfterMinutes === undefined ? settings.lateAfterMin : input.lateAfterMinutes;
   let lecturerId = ctx.lecturerId;
@@ -84,6 +117,9 @@ export async function createSession(ctx: TenantContext, input: CreateSessionInpu
       expiresAt: new Date(now.getTime() + duration * 60_000),
       latitude,
       longitude,
+      locationSource,
+      locationAccuracyM,
+      maxLocationAgeSeconds: settings.maxLocationAgeSeconds,
       radiusM: clampRadius(input.radiusM ?? settings.defaultGeofenceRadiusM),
       minAccuracyM: input.minAccuracyM ?? settings.minGpsAccuracyM,
       locationRequired,

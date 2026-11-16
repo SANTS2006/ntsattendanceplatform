@@ -8,6 +8,7 @@ import { routes } from '../../lib/route.js';
 import { tenantCtx, type TenantContext } from '../../middleware/context.js';
 import { audit } from '../audit/audit.service.js';
 import { classScopeWhere } from '../attendance/access.js';
+import { applyVenueFields } from '../organizations/venue.js';
 
 export const academicsRouter = Router();
 const TAG = 'Academics';
@@ -101,10 +102,13 @@ registerCrud(academicsRouter, {
 const classBody = z.object({
   name, code, courseId: nullableUuid(), academicYearId: nullableUuid(), semesterId: nullableUuid(), room: nullableStr(80),
   defaultLatitude: z.number().min(-90).max(90).nullable().optional(), defaultLongitude: z.number().min(-180).max(180).nullable().optional(),
+  venueLocationSource: z.enum(['GPS', 'MAP']).nullable().optional(),
+  venueAccuracyM: z.number().finite().nonnegative().max(1_000_000).nullable().optional(),
   status: status.optional(),
 });
 
 const classGuard = async (ctx: TenantContext, data: Record<string, unknown>, existing?: { courseId?: string | null; lecturers?: { lecturerId: string }[] }) => {
+  await applyVenueFields(ctx, data);
   const scope = ctx.scope('academics.manage');
   if (scope === 'all') return;
   if (!scope) {

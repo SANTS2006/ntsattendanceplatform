@@ -3,12 +3,12 @@ import { useForm, type FieldErrors, type RegisterOptions, type UseFormReturn } f
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { Crosshair, FileSpreadsheet, LocateFixed, MapPin, PencilLine, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { FileSpreadsheet, PencilLine, Pencil, Plus, Trash2 } from 'lucide-react';
 import { ApiError, del, errorMessage, patch, post } from '@/api/client';
 import { useAuth } from '@/auth/AuthProvider';
 import { usePaged } from '@/hooks/usePaged';
 import { useOptions } from '@/hooks/useOptions';
-import { useCurrentLocation } from '@/hooks/useCurrentLocation';
+import { VenuePicker, type VenueValue } from './venue/VenuePicker';
 import { IMPORT_TEMPLATES, UploadRecords } from './UploadRecords';
 import { Badge, Button, Card, ConfirmDialog, DataTable, EmptyState, Input, Modal, Pagination, SearchInput, Select, Textarea, Toggle, type Column } from './ui';
 
@@ -83,47 +83,25 @@ function RefSelect({ field, form, error }: { field: Extract<FieldDef, { type: 'r
   return <Select label={`${field.label}${field.required ? ' *' : ''}`} options={options} placeholder={`Select your ${lower(field.label)}`} hint={field.hint} error={error} {...form.register(field.name, rules(field))} />;
 }
 
-function LocationField({ field, form }: { field: Extract<FieldDef, { type: 'location' }>; form: Form }) {
-  const lat = form.watch(field.latitude) as number | null | '';
-  const lng = form.watch(field.longitude) as number | null | '';
-  const has = lat !== '' && lat != null && lng !== '' && lng != null;
-  const geo = useCurrentLocation();
-  const capture = async () => {
-    const fix = await geo.locate();
-    if (fix) {
-      form.setValue(field.latitude, Number(fix.latitude.toFixed(6)), { shouldDirty: true });
-      form.setValue(field.longitude, Number(fix.longitude.toFixed(6)), { shouldDirty: true });
-      toast.success(`Venue location saved (±${fix.accuracy} m)`);
-    }
+function LocationField({ form }: { field: Extract<FieldDef, { type: 'location' }>; form: Form }) {
+  const lat = form.watch('defaultLatitude') as number | null | '';
+  const lng = form.watch('defaultLongitude') as number | null | '';
+  const source = (form.watch('venueLocationSource') as 'GPS' | 'MAP' | null | '') || null;
+  const accuracy = form.watch('venueAccuracyM') as number | null | '';
+  const capturedAt = (form.watch('venueCapturedAt') as string | null | '') || null;
+  const value: VenueValue | null =
+    lat !== '' && lat != null && lng !== '' && lng != null
+      ? { latitude: Number(lat), longitude: Number(lng), source, accuracyM: accuracy === '' || accuracy == null ? null : Number(accuracy), capturedAt }
+      : null;
+  const set = (v: VenueValue | null) => {
+    const opts = { shouldDirty: true };
+    form.setValue('defaultLatitude', v ? v.latitude : '', opts);
+    form.setValue('defaultLongitude', v ? v.longitude : '', opts);
+    form.setValue('venueLocationSource', v?.source ?? '', opts);
+    form.setValue('venueAccuracyM', v?.accuracyM ?? '', opts);
+    form.setValue('venueCapturedAt', v?.capturedAt ?? '', opts);
   };
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className={clsx('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', has ? 'bg-emerald-50 text-emerald-600' : 'bg-brand-50 text-brand-600')}>
-            <MapPin className="h-5 w-5" />
-          </span>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-slate-800">{field.label}</p>
-            <p className="text-xs text-slate-500">
-              {has ? `Saved · ${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}` : field.hint ?? 'Stand at the venue and capture its location. Used as the default geofence for QR sessions.'}
-            </p>
-            {geo.error && <p className="mt-1 text-xs text-rose-600">{geo.error}</p>}
-          </div>
-        </div>
-        <div className="flex shrink-0 gap-2">
-          {has && (
-            <Button size="sm" variant="ghost" icon={<X className="h-4 w-4" />} onClick={() => { form.setValue(field.latitude, '', { shouldDirty: true }); form.setValue(field.longitude, '', { shouldDirty: true }); }}>
-              Clear
-            </Button>
-          )}
-          <Button size="sm" variant="secondary" loading={geo.status === 'locating'} icon={has ? <Crosshair className="h-4 w-4" /> : <LocateFixed className="h-4 w-4" />} onClick={capture}>
-            {has ? 'Recapture' : 'Use my current location'}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
+  return <VenuePicker value={value} onChange={set} radiusM={20} label="Venue location (attendance geofence anchor)" />;
 }
 
 type Props<T> = {
@@ -169,7 +147,7 @@ export function ResourceManager<T extends { id: string }>(p: Props<T>) {
   const open = (row: T | 'new', as: 'form' | 'upload' = 'form') => {
     const defaults: Record<string, unknown> = {};
     for (const f of p.fields) {
-      if (f.type === 'location') { defaults[f.latitude] = ''; defaults[f.longitude] = ''; }
+      if (f.type === 'location') Object.assign(defaults, { [f.latitude]: '', [f.longitude]: '', venueLocationSource: '', venueAccuracyM: '', venueCapturedAt: '' });
       else defaults[f.name] = f.type === 'boolean' ? false : '';
     }
     const values = row === 'new' ? defaults : { ...defaults, ...(p.toForm ? p.toForm(row) : (row as Record<string, unknown>)) };
@@ -186,6 +164,14 @@ export function ResourceManager<T extends { id: string }>(p: Props<T>) {
       for (const f of p.fields) {
         if (f.type === 'location') {
           for (const k of [f.latitude, f.longitude]) payload[k] = values[k] === '' || values[k] == null ? null : Number(values[k]);
+          // Only send coordinates when they changed; they must carry their provenance (GPS / MAP).
+          if (!form.getFieldState(f.latitude).isDirty && !form.getFieldState(f.longitude).isDirty) {
+            delete payload[f.latitude];
+            delete payload[f.longitude];
+          } else if (payload[f.latitude] != null) {
+            payload.venueLocationSource = values.venueLocationSource || null;
+            payload.venueAccuracyM = values.venueAccuracyM === '' || values.venueAccuracyM == null ? null : Number(values.venueAccuracyM);
+          }
           continue;
         }
         const v = values[f.name];

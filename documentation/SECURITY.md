@@ -61,6 +61,11 @@ tickets (RLS-protected); organizations can only read their own conversations and
 
 - Browser geolocation can be spoofed by a determined user. NTSAttend computes distance server-side,
   enforces accuracy thresholds and flags implausible readings, but GPS is not proof of presence.
+- Location policy: the server checks reading age, then reported accuracy, then Haversine distance
+  against the session's snapshot; the radius is never expanded by the accuracy. Venue anchors must be
+  GPS readings within the capture limit or explicit map placements (stored with their source and
+  audited). A verified location is signed into the short-lived attempt token so submit cannot be fed a
+  different reading. Geolocation requires HTTPS and is limited to this origin by `Permissions-Policy`.
 - A selfie is an audit and deterrence aid. It is not biometric identity verification; records say
   `CAPTURED_NOT_BIOMETRICALLY_VERIFIED`. Face matching and liveness can be added as modules.
 
