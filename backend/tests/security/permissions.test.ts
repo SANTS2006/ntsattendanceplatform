@@ -1,6 +1,6 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '../../src/db/prisma.js';
-import { PASSWORD, api, getApp, registerUser, resetDb, seedTenant, startSession, type Session } from '../helpers.js';
+import { PASSWORD, api, getApp, lecturerReading, refreshTokens, registerUser, resetDb, seedTenant, startSession, type Session } from '../helpers.js';
 import request from 'supertest';
 
 let T: Awaited<ReturnType<typeof seedTenant>>;
@@ -20,6 +20,8 @@ async function joinAs(roleKey: string, opts: { createLecturer?: boolean; departm
   return user;
 }
 
+beforeEach(() => refreshTokens(T?.owner, lecturer));
+
 beforeAll(async () => {
   await resetDb();
   T = await seedTenant('Gamma Institute');
@@ -37,7 +39,7 @@ describe('lecturer object-level permissions', () => {
   });
 
   it('can run attendance for an assigned class but not an unassigned one', async () => {
-    expect((await api(lecturer, 'post', '/attendance/sessions', { classId: T.cls.id, durationMinutes: 10 })).status).toBe(201);
+    expect((await api(lecturer, 'post', '/attendance/sessions', { classId: T.cls.id, durationMinutes: 10, reference: lecturerReading() })).status).toBe(201);
     const denied = await api(lecturer, 'post', '/attendance/sessions', { classId: otherClassId, durationMinutes: 10, locationVerificationEnabled: false });
     expect(denied.status).toBe(403);
     expect(denied.body.code).toBe('NOT_ASSIGNED');

@@ -1,10 +1,12 @@
 import ExcelJS from 'exceljs';
 import request from 'supertest';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { drainInlineJobs } from '../../src/infra/queue.js';
-import { api, auth, getApp, publicFlow, resetDb, seedTenant, startSession, submitAttendance } from '../helpers.js';
+import { api, auth, getApp, publicFlow, refreshTokens, resetDb, seedTenant, startSession, submitAttendance } from '../helpers.js';
 
 let T: Awaited<ReturnType<typeof seedTenant>>;
+
+beforeEach(() => refreshTokens(T?.owner));
 
 beforeAll(async () => {
   await resetDb();

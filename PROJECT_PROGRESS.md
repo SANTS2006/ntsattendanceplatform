@@ -146,8 +146,10 @@ now the first, server-enforced step. Details: [ATTENDANCE_WORKFLOW.md](documenta
 |---|---|
 | Backend unit (`tests/unit`, incl. proximity: 0/5/10/15/19/20/21/50 m exact and with accuracy, boundary, poor accuracy, stale, invalid, expired, reference validation) | 65 / 65 passed |
 | Backend proximity integration (`tests/attendance/proximity.test.ts`, real PostgreSQL test DB) | 28 / 28 passed (27 in the first run; the 28th passed after correcting its expected status 400 → 422) |
-| Backend attendance integration (`tests/attendance/attendance.test.ts`) | 19 / 20 passed across runs (after updating the masked-email assertion and adding token refresh); **"rejects duplicates and replays idempotently" not confirmed** — every attempt failed on a dropped database connection |
-| Tenant isolation, permissions, students/reports suites | **not completed** — the test database became unreachable (`P1001`, connection resets, pool timeouts) |
+| Backend attendance integration (`tests/attendance/attendance.test.ts`) | 20 / 20 passed (after updating the masked-email assertion and adding token refresh) |
+| Permissions (`tests/security/permissions.test.ts`) | 10 / 10 passed (lecturer session now sends a reference reading) |
+| Students / reports (`tests/integration/students-reports.test.ts`) | 11 / 13 passed; the 2 failures (formula escaping, class summary) were database connection resets (`10054`, `P1001`), not assertions |
+| Tenant isolation (`tests/tenancy/isolation.test.ts`) | 13 / 17 passed in an earlier run (settings test since updated); last run aborted in setup on a transaction timeout over the slow link. The 2 Row-Level Security tests **cannot pass on the test database**: it connects as `neondb_owner`, which has `BYPASSRLS` — see Known issues |
 | Frontend (Vitest, incl. 3 new student-page location tests) | 33 / 33 passed |
 | Type checks (backend `tsc`, frontend `tsc -b`), production build (`vite build`) | passed |
 | Playwright (`e2e/proximity.spec.ts`: lecturer poor/precise reading, student accepted / outside / uncertain→retry, audited location update, ended session) | **written, not run** — needs a reachable, seeded test database (see TESTING.md) |
@@ -163,6 +165,12 @@ now the first, server-enforced step. Details: [ATTENDANCE_WORKFLOW.md](documenta
   Creating a lecturer now needs only `lecturers.manage` (it grants the system Lecturer role).
 
 ## Known issues / limitations
+
+- **Row-Level Security is not enforced for the `neondb_owner` role** (it has `BYPASSRLS`). The test
+  database connects with it, so the RLS tests fail there; if production also connects as
+  `neondb_owner`, RLS is only a paper safeguard and tenant isolation rests on the application-level
+  scoping alone. Recommended: create a dedicated application role without `BYPASSRLS` and use it in
+  `DATABASE_URL` (keep the owner role for migrations via `DIRECT_URL`).
 
 - **Proximity verification is not validated on real smartphones.** Indoors, phone GPS is often
   ±10–50 m; with the 20 m rule (accept only when distance + accuracy ≤ 20 m) many indoor readings

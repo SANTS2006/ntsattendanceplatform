@@ -1,9 +1,9 @@
 import request from 'supertest';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '../../src/db/prisma.js';
 import { tenantDb, withTenant } from '../../src/db/tenant.js';
 import { drainInlineJobs } from '../../src/infra/queue.js';
-import { api, getApp, publicFlow, resetDb, seedTenant, startSession, submitAttendance } from '../helpers.js';
+import { api, getApp, publicFlow, refreshTokens, resetDb, seedTenant, startSession, submitAttendance } from '../helpers.js';
 
 /**
  * Proves Organization A cannot read, modify, delete or reference Organization B's data through
@@ -14,6 +14,8 @@ let B: Awaited<ReturnType<typeof seedTenant>>;
 let bSessionId: string;
 let bRecordId: string;
 let bExportId: string;
+
+beforeEach(() => refreshTokens(A?.owner, B?.owner));
 
 beforeAll(async () => {
   await resetDb();
@@ -69,8 +71,9 @@ describe('API-level tenant isolation', () => {
   });
 
   it('A settings changes never affect B', async () => {
-    await api(A.owner, 'patch', '/organizations/settings', { defaultGeofenceRadiusM: 999 });
-    expect((await api(B.owner, 'get', '/organizations/settings')).body.data.defaultGeofenceRadiusM).toBe(100);
+    expect((await api(A.owner, 'patch', '/organizations/settings', { studentMaxAccuracyM: 99 })).status).toBe(200);
+    expect((await api(A.owner, 'get', '/organizations/settings')).body.data.studentMaxAccuracyM).toBe(99);
+    expect((await api(B.owner, 'get', '/organizations/settings')).body.data.studentMaxAccuracyM).toBe(20);
   });
 
   it('A cannot create rows that reference B rows (enroll B student into A class)', async () => {

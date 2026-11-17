@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import jwt from 'jsonwebtoken';
+import { signAccessToken } from '../src/lib/jwt.js';
 import request from 'supertest';
 import type { Express } from 'express';
 import { createApp } from '../src/app.js';
@@ -122,4 +124,13 @@ export async function publicFlow(qrToken: string, studentId: string, location: R
 export async function submitAttendance(qrToken: string, attemptToken: string, body: Record<string, unknown> = {}, key = crypto.randomUUID()) {
   const a = await getApp();
   return request(a).post(`/api/v1/public/attendance/${qrToken}/submit`).set('X-Attempt-Token', attemptToken).set('Idempotency-Key', key).send(body);
+}
+
+/** Re-signs access tokens (same claims and server session): slow database links can outlive the 15-minute token. */
+export function refreshTokens(...sessions: ({ token: string } | undefined)[]) {
+  for (const s of sessions) {
+    if (!s) continue;
+    const c = jwt.decode(s.token) as { sub: string; org: string | null; sid: string };
+    s.token = signAccessToken({ sub: c.sub, org: c.org, sid: c.sid });
+  }
 }
