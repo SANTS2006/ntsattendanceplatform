@@ -1,10 +1,12 @@
 import crypto from 'node:crypto';
 import sharp from 'sharp';
 import request from 'supertest';
-import { beforeAll, describe, expect, it } from 'vitest';
+import jwt from 'jsonwebtoken';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '../../src/db/prisma.js';
 import { sha256 } from '../../src/lib/crypto.js';
-import { CLASS_LOCATION, api, getApp, publicFlow, resetDb, seedTenant, startSession, submitAttendance } from '../helpers.js';
+import { signAccessToken } from '../../src/lib/jwt.js';
+import { CLASS_LOCATION, api, getApp, publicFlow, reading, resetDb, seedTenant, startSession, submitAttendance } from '../helpers.js';
 
 let T: Awaited<ReturnType<typeof seedTenant>>;
 const base = '/api/v1/public/attendance';
@@ -18,6 +20,11 @@ async function jpeg(w = 320, h = 320, withExif = false) {
 beforeAll(async () => {
   await resetDb();
   T = await seedTenant('Delta University');
+});
+// Over a slow database link this file can outlive the 15-minute access token.
+beforeEach(() => {
+  const c = jwt.decode(T.owner.token) as { sub: string; org: string | null; sid: string };
+  T.owner.token = signAccessToken({ sub: c.sub, org: c.org, sid: c.sid });
 });
 
 describe('QR tokens', () => {
@@ -44,7 +51,12 @@ describe('QR tokens', () => {
     await prisma.attendanceSession.update({ where: { id: s.session.id }, data: { startsAt: new Date(Date.now() - 120_000), expiresAt: new Date(Date.now() - 1000) } });
     const exp = await request(a).post(`${base}/${s.qr.token}/validate`);
     expect(exp.status).toBe(410);
-    expect(exp.body.code).toBe('QR_EXPIRED');
+    expect(exp.body.code).toBe('ATTENDANCE_SESSION_EXPIRED');
+
+    // A rotated QR token past its own expiry (and grace period) is QR_EXPIRED while the session runs on.
+    const rot = await startSession(T.owner, T.cls.id);
+    await prisma.qRToken.updateMany({ where: { sessionId: rot.session.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    expect((await request(a).post(`${base}/${rot.qr.token}/validate`)).body.code).toBe('QR_EXPIRED');
 
     const r = await startSession(T.owner, T.cls.id);
     await api(T.owner, 'post', `/attendance/sessions/${r.session.id}/revoke`);
@@ -80,7 +92,7 @@ describe('student verification', () => {
     expect(flow.stage).toBe('ready');
     if (flow.stage !== 'ready') return;
     expect(flow.student).toMatchObject({ fullName: 'Student1 Delta', studentId: '20240001', program: 'BSc Computer Science', level: 'Year 2' });
-    expect(flow.student.email).toMatch(/^s1\*+@delta\.test$/);
+    expect(flow.student.email).toBe('s1@delta.test'); // shown in full so the student can confirm the record
     expect(Object.keys(flow.student).sort()).toEqual(['email', 'fullName', 'level', 'program', 'studentId']);
   });
 
@@ -100,7 +112,7 @@ describe('student verification', () => {
   });
 
   it('caps repeated failed lookups per client (enumeration protection)', async () => {
-    const s = await startSession(T.owner, T.cls.id);
+    const s = await startSession(T.owner, T.cls.id, { locationVerificationEnabled: false });
     const a = await getApp();
     const v = await request(a).post(`${base}/${s.qr.token}/validate`);
     let last;
@@ -113,34 +125,25 @@ describe('student verification', () => {
   });
 });
 
-describe('location verification', () => {
+describe('location verification (details in proximity.test.ts)', () => {
   const verify = async (token: string, attempt: string, body: object) =>
     request(await getApp()).post(`${base}/${token}/verify-location`).set('X-Attempt-Token', attempt).send(body);
 
-  it('accepts inside, rejects outside, poor accuracy, invalid and missing coordinates', async () => {
+  it('student ID verification is only possible after the location is accepted', async () => {
     const s = await startSession(T.owner, T.cls.id);
-    const flow = await publicFlow(s.qr.token, '20240002');
-    if (flow.stage !== 'ready') throw new Error('flow');
-    const ok = await verify(s.qr.token, flow.attemptToken, { latitude: 8.4846, longitude: -13.2344, accuracy: 12 });
-    expect(ok.status).toBe(200);
-    expect(ok.body.data.withinGeofence).toBe(true);
-    const out = await verify(s.qr.token, flow.attemptToken, { latitude: 8.5, longitude: -13.2344, accuracy: 12 });
-    expect(out.status).toBe(403);
-    expect(out.body.message).toBe('You are not within the class attendance location. You cannot record your attendance.');
-    expect((await verify(s.qr.token, flow.attemptToken, { ...CLASS_LOCATION, accuracy: 900 })).body.code).toBe('GPS_ACCURACY_INSUFFICIENT');
-    expect((await verify(s.qr.token, flow.attemptToken, { latitude: 123, longitude: 0, accuracy: 5 })).body.code).toBe('INVALID_COORDINATES');
-    expect((await verify(s.qr.token, flow.attemptToken, {})).body.code).toBe('LOCATION_REQUIRED');
+    const v = await request(await getApp()).post(`${base}/${s.qr.token}/validate`);
+    const res = await request(await getApp()).post(`${base}/${s.qr.token}/verify-student`).set('X-Attempt-Token', v.body.data.attemptToken).send({ studentId: '20240002' });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('LOCATION_NOT_VERIFIED');
   });
 
-  it('never trusts the client: submission outside the geofence is rejected even after a passing check', async () => {
+  it('never trusts client-calculated distances or verdicts', async () => {
     const s = await startSession(T.owner, T.cls.id);
-    const flow = await publicFlow(s.qr.token, '20240002');
-    if (flow.stage !== 'ready') throw new Error('flow');
-    await verify(s.qr.token, flow.attemptToken, { ...CLASS_LOCATION, accuracy: 10 });
-    const res = await submitAttendance(s.qr.token, flow.attemptToken, { latitude: 8.6, longitude: -13.2344, accuracy: 10, withinGeofence: true });
+    const v = await request(await getApp()).post(`${base}/${s.qr.token}/validate`);
+    const res = await verify(s.qr.token, v.body.data.attemptToken, { ...reading(50, 5), distanceM: 0, withinGeofence: true, accepted: true });
     expect(res.status).toBe(403);
-    expect(res.body.code).toBe('OUTSIDE_GEOFENCE');
-    expect(await prisma.attendanceRecord.count({ where: { sessionId: s.session.id } })).toBe(0);
+    expect(res.body.code).toBe('LOCATION_OUTSIDE_RADIUS');
+    expect(res.body.errors.distanceM).toBe(50);
   });
 });
 

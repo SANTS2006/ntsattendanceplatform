@@ -2,7 +2,7 @@
  * Attendance burst benchmark (no k6 required).
  *
  * Simulates N students scanning the same QR code at once and running the full public flow
- * (validate → verify-student → submit with GPS), with bounded client concurrency, against an
+ * (validate → verify-location → verify-student → submit), with bounded client concurrency, against an
  * in-process API instance on the TEST database. Also fires a duplicate-submission storm for one
  * student to prove only one record is created.
  *
@@ -46,15 +46,16 @@ await prisma.student.createMany({ data: numbers.map((n) => ({ organizationId: or
 const studentIds = await prisma.student.findMany({ where: { organizationId: org.id }, select: { id: true } });
 await prisma.enrollment.createMany({ data: studentIds.map((s) => ({ organizationId: org.id, classId: cls.id, studentId: s.id })) });
 const session = await prisma.attendanceSession.create({
-  data: { organizationId: org.id, title: 'Bench', classId: cls.id, createdByUserId: owner.id, expiresAt: new Date(Date.now() + 3600_000), latitude: 8.4844, longitude: -13.2344,
-    radiusM: 100, minAccuracyM: 100, locationRequired: true, selfieRequired: false, requireEnrollment: true, configSnapshot: {} },
+  data: { organizationId: org.id, title: 'Bench', classId: cls.id, createdByUserId: owner.id, expiresAt: new Date(Date.now() + 3600_000),
+    referenceLatitude: 8.4844, referenceLongitude: -13.2344, referenceAccuracyMeters: 5, referenceCapturedAt: new Date(), locationSource: 'LECTURER_GPS',
+    maximumDistanceMeters: 20, studentMaxAccuracyM: 20, locationVerificationEnabled: true, selfieRequired: false, requireEnrollment: true, configSnapshot: {} },
 });
 const raw = crypto.randomBytes(32).toString('base64url');
 await prisma.qRToken.create({ data: { organizationId: org.id, sessionId: session.id, tokenHash: sha256(raw), expiresAt: session.expiresAt } });
 
 const server = createApp().listen(0);
 const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/public/attendance/${raw}`;
-const lat: Record<string, number[]> = { validate: [], verify: [], submit: [], flow: [] };
+const lat: Record<string, number[]> = { validate: [], location: [], verify: [], submit: [], flow: [] };
 const errors: Record<string, number> = {};
 
 async function timed<T>(bucket: string, fn: () => Promise<T>) {
@@ -69,18 +70,24 @@ async function json(res: Response) {
   return body.data!;
 }
 
+/** A fresh reading ~5.6 m from the lecturer with ±8 m accuracy (accepted: 5.6 + 8 ≤ 20). */
+const reading = () => JSON.stringify({ latitude: 8.48445, longitude: -13.2344, accuracy: 8, timestamp: Date.now() - 500, clientTime: Date.now() });
+const located = async (attempt: unknown) =>
+  fetch(`${base}/verify-location`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-attempt-token': String(attempt) }, body: reading() }).then(json);
+
 async function flow(studentNumber: string) {
   const start = performance.now();
   try {
     const v = await timed('validate', () => fetch(`${base}/validate`, { method: 'POST' }).then(json));
+    const l = await timed('location', () => located(v.attemptToken));
     const s = await timed('verify', () =>
-      fetch(`${base}/verify-student`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-attempt-token': String(v.attemptToken) }, body: JSON.stringify({ studentId: studentNumber }) }).then(json),
+      fetch(`${base}/verify-student`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-attempt-token': String(l.attemptToken) }, body: JSON.stringify({ studentId: studentNumber }) }).then(json),
     );
     await timed('submit', () =>
       fetch(`${base}/submit`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-attempt-token': String(s.attemptToken), 'idempotency-key': crypto.randomUUID() },
-        body: JSON.stringify({ latitude: 8.48445, longitude: -13.23442, accuracy: 12 }),
+        body: JSON.stringify({}),
       }).then(json),
     );
     lat.flow.push(performance.now() - start);
@@ -107,9 +114,10 @@ const elapsed = (performance.now() - t0) / 1000;
 // Duplicate storm: one student, 50 simultaneous submissions with different idempotency keys.
 const dupNumber = numbers[N];
 const v = await fetch(`${base}/validate`, { method: 'POST' }).then(json);
-const s = await fetch(`${base}/verify-student`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-attempt-token': String(v.attemptToken) }, body: JSON.stringify({ studentId: dupNumber }) }).then(json);
+const l = await located(v.attemptToken);
+const s = await fetch(`${base}/verify-student`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-attempt-token': String(l.attemptToken) }, body: JSON.stringify({ studentId: dupNumber }) }).then(json);
 const dup = await Promise.all(Array.from({ length: 50 }, () =>
-  fetch(`${base}/submit`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-attempt-token': String(s.attemptToken), 'idempotency-key': crypto.randomUUID() }, body: JSON.stringify({ latitude: 8.48445, longitude: -13.23442, accuracy: 12 }) }).then((r) => r.status),
+  fetch(`${base}/submit`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-attempt-token': String(s.attemptToken), 'idempotency-key': crypto.randomUUID() }, body: JSON.stringify({}) }).then((r) => r.status),
 ));
 const recorded = await prisma.attendanceRecord.count({ where: { sessionId: session.id } });
 const dupRecords = await prisma.attendanceRecord.count({ where: { sessionId: session.id, studentNumberSnapshot: dupNumber } });

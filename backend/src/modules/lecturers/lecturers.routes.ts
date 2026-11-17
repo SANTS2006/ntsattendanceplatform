@@ -29,7 +29,7 @@ r({ method: 'get', path: '/lecturers/me', summary: 'Signed-in lecturer profile w
         include: {
           class: {
             select: {
-              id: true, name: true, code: true, room: true, status: true, defaultLatitude: true, defaultLongitude: true,
+              id: true, name: true, code: true, room: true, status: true,
               course: { select: { id: true, code: true, title: true } }, _count: { select: { enrollments: true } },
             },
           },

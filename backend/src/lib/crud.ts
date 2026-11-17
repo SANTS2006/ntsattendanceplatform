@@ -80,7 +80,6 @@ export function registerCrud(router: Router, cfg: CrudConfig) {
       await cfg.guardWrite?.(ctx, req.valid.body);
       const row = await delegate(ctx).create({ data: { ...req.valid.body, organizationId: ctx.organizationId } });
       await cfg.afterCreate?.(ctx, row, req);
-      if ('defaultLatitude' in req.valid.body) await auditVenue(req, cfg, row);
       await audit({ action: `${cfg.model}.created`, targetType: cfg.entity, targetId: row.id, metadata: { name: row.name ?? row.title ?? row.code ?? undefined }, req });
       created(res, row);
     },
@@ -96,7 +95,6 @@ export function registerCrud(router: Router, cfg: CrudConfig) {
       const existing = await findScoped(ctx, req.valid.params.id);
       await cfg.guardWrite?.(ctx, req.valid.body, existing);
       const row = await delegate(ctx).update({ where: { id: existing.id }, data: req.valid.body });
-      if ('defaultLatitude' in req.valid.body || 'defaultLongitude' in req.valid.body) await auditVenue(req, cfg, row);
       const statusChange = 'status' in req.valid.body && existing.status !== row.status ? { statusFrom: existing.status, statusTo: row.status } : {};
       await audit({
         action: Object.keys(statusChange).length ? `${cfg.model}.status_changed` : `${cfg.model}.updated`,
@@ -132,19 +130,4 @@ export function registerCrud(router: Router, cfg: CrudConfig) {
       ok(res, null, { message: cfg.softDelete ? 'Archived' : 'Deleted' });
     },
   );
-}
-
-/** Every venue (geofence anchor) change is audited with its provenance and accuracy. */
-async function auditVenue(req: Request, cfg: CrudConfig, row: any) {
-  await audit({
-    action: `${cfg.model}.venue_location_set`, targetType: cfg.entity, targetId: row.id,
-    metadata: {
-      name: row.name ?? row.code ?? undefined,
-      source: row.venueLocationSource ?? null,
-      accuracyM: row.venueAccuracyM ?? null,
-      latitude: row.defaultLatitude != null ? Math.round(row.defaultLatitude * 1e6) / 1e6 : null,
-      longitude: row.defaultLongitude != null ? Math.round(row.defaultLongitude * 1e6) / 1e6 : null,
-    },
-    req,
-  });
 }

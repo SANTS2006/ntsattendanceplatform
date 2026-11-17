@@ -68,13 +68,13 @@ export async function seedTenant(name = 'Alpha University') {
   const owner = await registerUser();
   const org = await createOrg(owner, name);
   await api(owner, 'patch', '/organizations/settings', {
-    studentIdExactLength: 8, studentIdCharset: 'NUMERIC', locationRequired: true, selfieRequired: false, defaultGeofenceRadiusM: 100, minGpsAccuracyM: 100,
+    studentIdExactLength: 8, studentIdCharset: 'NUMERIC', locationRequired: true, selfieRequired: false, studentMaxAccuracyM: 20, lecturerMaxAccuracyM: 20,
   });
   const dept = (await api(owner, 'post', '/departments', { name: 'Computer Science', code: 'CS' })).body.data;
   const program = (await api(owner, 'post', '/programs', { name: 'BSc Computer Science', code: 'BSCCS', departmentId: dept.id })).body.data;
   const level = (await api(owner, 'post', '/levels', { name: 'Year 2', rank: 2 })).body.data;
   const course = (await api(owner, 'post', '/courses', { code: 'CS201', title: 'Data Structures', departmentId: dept.id, programId: program.id, levelId: level.id })).body.data;
-  const cls = (await api(owner, 'post', '/classes', { name: 'Group A', code: 'CS201-A', courseId: course.id, defaultLatitude: 8.4844, defaultLongitude: -13.2344, venueLocationSource: 'MAP' })).body.data;
+  const cls = (await api(owner, 'post', '/classes', { name: 'Group A', code: 'CS201-A', courseId: course.id, room: 'Lecture Hall 2' })).body.data;
   const students = [];
   for (let i = 1; i <= 3; i++) {
     const s = (
@@ -89,24 +89,37 @@ export async function seedTenant(name = 'Alpha University') {
   return { owner, org, dept, program, level, course, cls, students };
 }
 
+/** Where the lecturer stands when generating the QR code (the session reference point). */
 export const CLASS_LOCATION = { latitude: 8.4844, longitude: -13.2344 };
+/** Point `m` metres due north of the reference (0.0001° latitude ≈ 11.1 m). */
+export const north = (m: number) => ({ latitude: CLASS_LOCATION.latitude + m / 111_195, longitude: CLASS_LOCATION.longitude });
+/** A fresh browser reading `m` metres from the lecturer with the given accuracy. */
+export const reading = (m: number, accuracy: number, ageMs = 1_000) => ({ ...north(m), accuracy, timestamp: Date.now() - ageMs, clientTime: Date.now() });
+export const lecturerReading = (accuracy = 5, ageMs = 1_000) => reading(0, accuracy, ageMs);
 
 export async function startSession(owner: Session, classId: string, extra: Record<string, unknown> = {}) {
-  const res = await api(owner, 'post', '/attendance/sessions', { classId, durationMinutes: 15, ...extra });
+  const res = await api(owner, 'post', '/attendance/sessions', { classId, durationMinutes: 15, reference: lecturerReading(), ...extra });
   if (res.status !== 201) throw new Error(`session failed: ${res.status} ${JSON.stringify(res.body)}`);
   return res.body.data as { session: { id: string }; qr: { token: string; url: string } };
 }
 
-export async function publicFlow(qrToken: string, studentId: string) {
+/** validate → (location, when the session requires it) → student ID. */
+export async function publicFlow(qrToken: string, studentId: string, location: Record<string, unknown> = reading(3, 5)) {
   const a = await getApp();
   const v = await request(a).post(`/api/v1/public/attendance/${qrToken}/validate`);
   if (v.status !== 200) return { stage: 'validate', res: v } as const;
-  const s = await request(a).post(`/api/v1/public/attendance/${qrToken}/verify-student`).set('X-Attempt-Token', v.body.data.attemptToken).send({ studentId });
+  let attempt = v.body.data.attemptToken as string;
+  if (v.body.data.session.locationVerificationEnabled) {
+    const l = await request(a).post(`/api/v1/public/attendance/${qrToken}/verify-location`).set('X-Attempt-Token', attempt).send(location);
+    if (l.status !== 200) return { stage: 'location', res: l } as const;
+    attempt = l.body.data.attemptToken;
+  }
+  const s = await request(a).post(`/api/v1/public/attendance/${qrToken}/verify-student`).set('X-Attempt-Token', attempt).send({ studentId });
   if (s.status !== 200) return { stage: 'student', res: s } as const;
   return { stage: 'ready', attemptToken: s.body.data.attemptToken as string, student: s.body.data.student, validate: v.body.data } as const;
 }
 
-export async function submitAttendance(qrToken: string, attemptToken: string, body: Record<string, unknown> = { ...CLASS_LOCATION, accuracy: 15 }, key = crypto.randomUUID()) {
+export async function submitAttendance(qrToken: string, attemptToken: string, body: Record<string, unknown> = {}, key = crypto.randomUUID()) {
   const a = await getApp();
   return request(a).post(`/api/v1/public/attendance/${qrToken}/submit`).set('X-Attempt-Token', attemptToken).set('Idempotency-Key', key).send(body);
 }

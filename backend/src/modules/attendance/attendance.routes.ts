@@ -11,20 +11,24 @@ const T = ['Attendance sessions'];
 const READ = ['attendance.read_all', 'attendance.read_assigned', 'attendance.sessions.create'] as const;
 const MANAGE = ['attendance.sessions.create', 'attendance.sessions.manage_all'] as const;
 
+/** Raw browser reading. Ranges are checked by the proximity service (structured outcomes). */
+export const gpsReading = z.object({
+  latitude: z.number().finite(),
+  longitude: z.number().finite(),
+  accuracy: z.number().finite(),
+  timestamp: z.number().finite(),
+  clientTime: z.number().finite(),
+});
+
 const createBody = z
   .object({
     classId: z.string().uuid().nullable().optional(),
     eventId: z.string().uuid().nullable().optional(),
     title: z.string().trim().min(2).max(150).optional(),
     durationMinutes: z.number().int().min(1).max(24 * 60).optional(),
-    latitude: z.number().min(-90).max(90).nullable().optional(),
-    longitude: z.number().min(-180).max(180).nullable().optional(),
-    /** Provenance of latitude/longitude: GPS (with accuracy) or MAP (manually placed). */
-    locationSource: z.enum(['GPS', 'MAP']).optional(),
-    locationAccuracyM: z.number().finite().nonnegative().max(1_000_000).nullable().optional(),
-    radiusM: z.number().int().min(14, 'The radius must be at least 14 m').max(20, 'The radius must be at most 20 m').optional(),
-    minAccuracyM: z.number().int().min(5).max(1_000).optional(),
-    locationRequired: z.boolean().optional(),
+    /** The lecturer's current GPS reading — becomes the session's fixed reference point. */
+    reference: gpsReading.nullable().optional(),
+    locationVerificationEnabled: z.boolean().optional(),
     selfieRequired: z.boolean().optional(),
     requireEnrollment: z.boolean().optional(),
     lateAfterMinutes: z.number().int().min(1).max(24 * 60).nullable().optional(),
@@ -63,6 +67,15 @@ r({ method: 'get', path: '/sessions/:id', summary: 'Session details with live st
 r(
   { method: 'post', path: '/sessions/:id/qr', summary: 'Issue a fresh QR token for an active session', tags: T, access: 'tenant', permission: [...MANAGE], params: uuidParam },
   async (req, res) => ok(res, await svc.issueQr(tenantCtx(req), req.valid.params.id, req)),
+);
+
+r(
+  {
+    method: 'post', path: '/sessions/:id/reference-location', summary: "Correct the session's reference point (the lecturer's current GPS position); audited",
+    tags: T, access: 'tenant', permission: [...MANAGE], params: uuidParam,
+    body: z.object({ reference: gpsReading, reason: z.string().trim().min(5, 'Give a reason of at least 5 characters').max(300) }),
+  },
+  async (req, res) => ok(res, await svc.updateReferenceLocation(tenantCtx(req), req.valid.params.id, req.valid.body, req), { message: 'Reference location updated' }),
 );
 
 r({ method: 'post', path: '/sessions/:id/close', summary: 'Close a session (no further submissions)', tags: T, access: 'tenant', permission: [...MANAGE], params: uuidParam }, async (req, res) =>

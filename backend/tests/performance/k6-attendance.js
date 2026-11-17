@@ -58,10 +58,14 @@ export default function () {
   if (!check(v, { 'validate 200': (r) => r.status === 200 })) return failed.add(1);
   let attempt = v.json('data.attemptToken');
 
-  const loc = http.post(`${BASE}/public/attendance/${TOKEN}/verify-location`, JSON.stringify({ latitude: LAT + 0.00003, longitude: LNG, accuracy: 15 }), {
+  // Location first: ~3.3 m from the lecturer's reference point (LAT/LNG) with ±8 m → accepted.
+  const now = Date.now();
+  const reading = { latitude: LAT + 0.00003, longitude: LNG, accuracy: 8, timestamp: now - 500, clientTime: now };
+  const loc = http.post(`${BASE}/public/attendance/${TOKEN}/verify-location`, JSON.stringify(reading), {
     headers: { ...json.headers, 'X-Attempt-Token': attempt }, tags: { step: 'location' },
   });
-  check(loc, { 'location 200': (r) => r.status === 200 });
+  if (!check(loc, { 'location 200': (r) => r.status === 200 })) return failed.add(1);
+  attempt = loc.json('data.attemptToken');
 
   const s = http.post(`${BASE}/public/attendance/${TOKEN}/verify-student`, JSON.stringify({ studentId }), {
     headers: { ...json.headers, 'X-Attempt-Token': attempt }, tags: { step: 'verify' },
@@ -70,7 +74,7 @@ export default function () {
   attempt = s.json('data.attemptToken');
 
   const key = `k6-${idx}-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
-  const sub = http.post(`${BASE}/public/attendance/${TOKEN}/submit`, JSON.stringify({ latitude: LAT + 0.00003, longitude: LNG, accuracy: 15 }), {
+  const sub = http.post(`${BASE}/public/attendance/${TOKEN}/submit`, JSON.stringify({}), {
     headers: { ...json.headers, 'X-Attempt-Token': attempt, 'Idempotency-Key': key }, tags: { step: 'submit' },
   });
   if (check(sub, { 'submit 201': (r) => r.status === 201 })) recorded.add(1);

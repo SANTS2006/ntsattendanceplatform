@@ -8,7 +8,6 @@ import { ApiError, del, errorMessage, patch, post } from '@/api/client';
 import { useAuth } from '@/auth/AuthProvider';
 import { usePaged } from '@/hooks/usePaged';
 import { useOptions } from '@/hooks/useOptions';
-import { VenuePicker, type VenueValue } from './venue/VenuePicker';
 import { IMPORT_TEMPLATES, UploadRecords } from './UploadRecords';
 import { Badge, Button, Card, ConfirmDialog, DataTable, EmptyState, Input, Modal, Pagination, SearchInput, Select, Textarea, Toggle, type Column } from './ui';
 
@@ -20,9 +19,7 @@ export type FieldDef =
   | (Base & { type: 'textarea'; required?: boolean; max?: number })
   | (Base & { type: 'boolean'; description?: string })
   | (Base & { type: 'select'; options: { value: string; label: string }[]; required?: boolean })
-  | (Base & { type: 'ref'; url: string; optionLabel: (r: any) => string; required?: boolean }) // eslint-disable-line @typescript-eslint/no-explicit-any
-  /** Venue location captured from the device — writes `${name}Latitude` / `${name}Longitude`. */
-  | (Base & { type: 'location'; latitude: string; longitude: string });
+  | (Base & { type: 'ref'; url: string; optionLabel: (r: any) => string; required?: boolean }); // eslint-disable-line @typescript-eslint/no-explicit-any
 
 type Form = UseFormReturn<Record<string, unknown>>;
 
@@ -83,27 +80,6 @@ function RefSelect({ field, form, error }: { field: Extract<FieldDef, { type: 'r
   return <Select label={`${field.label}${field.required ? ' *' : ''}`} options={options} placeholder={`Select your ${lower(field.label)}`} hint={field.hint} error={error} {...form.register(field.name, rules(field))} />;
 }
 
-function LocationField({ form }: { field: Extract<FieldDef, { type: 'location' }>; form: Form }) {
-  const lat = form.watch('defaultLatitude') as number | null | '';
-  const lng = form.watch('defaultLongitude') as number | null | '';
-  const source = (form.watch('venueLocationSource') as 'GPS' | 'MAP' | null | '') || null;
-  const accuracy = form.watch('venueAccuracyM') as number | null | '';
-  const capturedAt = (form.watch('venueCapturedAt') as string | null | '') || null;
-  const value: VenueValue | null =
-    lat !== '' && lat != null && lng !== '' && lng != null
-      ? { latitude: Number(lat), longitude: Number(lng), source, accuracyM: accuracy === '' || accuracy == null ? null : Number(accuracy), capturedAt }
-      : null;
-  const set = (v: VenueValue | null) => {
-    const opts = { shouldDirty: true };
-    form.setValue('defaultLatitude', v ? v.latitude : '', opts);
-    form.setValue('defaultLongitude', v ? v.longitude : '', opts);
-    form.setValue('venueLocationSource', v?.source ?? '', opts);
-    form.setValue('venueAccuracyM', v?.accuracyM ?? '', opts);
-    form.setValue('venueCapturedAt', v?.capturedAt ?? '', opts);
-  };
-  return <VenuePicker value={value} onChange={set} radiusM={20} label="Venue location (attendance geofence anchor)" />;
-}
-
 type Props<T> = {
   title: string;
   url: string;
@@ -147,8 +123,7 @@ export function ResourceManager<T extends { id: string }>(p: Props<T>) {
   const open = (row: T | 'new', as: 'form' | 'upload' = 'form') => {
     const defaults: Record<string, unknown> = {};
     for (const f of p.fields) {
-      if (f.type === 'location') Object.assign(defaults, { [f.latitude]: '', [f.longitude]: '', venueLocationSource: '', venueAccuracyM: '', venueCapturedAt: '' });
-      else defaults[f.name] = f.type === 'boolean' ? false : '';
+      defaults[f.name] = f.type === 'boolean' ? false : '';
     }
     const values = row === 'new' ? defaults : { ...defaults, ...(p.toForm ? p.toForm(row) : (row as Record<string, unknown>)) };
     for (const k of Object.keys(values)) if (values[k] === null) values[k] = defaults[k] ?? '';
@@ -162,18 +137,6 @@ export function ResourceManager<T extends { id: string }>(p: Props<T>) {
     mutationFn: async (values: Record<string, unknown>) => {
       const payload: Record<string, unknown> = {};
       for (const f of p.fields) {
-        if (f.type === 'location') {
-          for (const k of [f.latitude, f.longitude]) payload[k] = values[k] === '' || values[k] == null ? null : Number(values[k]);
-          // Only send coordinates when they changed; they must carry their provenance (GPS / MAP).
-          if (!form.getFieldState(f.latitude).isDirty && !form.getFieldState(f.longitude).isDirty) {
-            delete payload[f.latitude];
-            delete payload[f.longitude];
-          } else if (payload[f.latitude] != null) {
-            payload.venueLocationSource = values.venueLocationSource || null;
-            payload.venueAccuracyM = values.venueAccuracyM === '' || values.venueAccuracyM == null ? null : Number(values.venueAccuracyM);
-          }
-          continue;
-        }
         const v = values[f.name];
         if (f.type === 'number') payload[f.name] = v === '' || v == null ? null : Number(v);
         else if (f.type === 'boolean') payload[f.name] = !!v;
@@ -311,7 +274,7 @@ export function ResourceManager<T extends { id: string }>(p: Props<T>) {
           <form noValidate className="grid gap-x-4 gap-y-4 sm:grid-cols-2" onSubmit={submit}>
             {p.fields.map((f) => {
               const err = errs[f.name]?.message as string | undefined;
-              const wide = f.wide || f.type === 'textarea' || f.type === 'boolean' || f.type === 'location' ? 'sm:col-span-2' : '';
+              const wide = f.wide || f.type === 'textarea' || f.type === 'boolean' ? 'sm:col-span-2' : '';
               const label = `${f.label}${'required' in f && f.required ? ' *' : ''}`;
               return (
                 <div key={f.name} className={wide}>
@@ -325,8 +288,6 @@ export function ResourceManager<T extends { id: string }>(p: Props<T>) {
                     <Select label={label} options={f.options} placeholder={`Select your ${lower(f.label)}`} hint={f.hint} error={err} {...form.register(f.name, rules(f))} />
                   ) : f.type === 'ref' ? (
                     <RefSelect field={f} form={form} error={err} />
-                  ) : f.type === 'location' ? (
-                    <LocationField field={f} form={form} />
                   ) : (
                     <Input
                       label={label}

@@ -80,10 +80,12 @@ export type OrgSettings = {
   studentIdCaseSensitive: boolean;
   studentIdAllowSpaces: boolean;
   studentIdExample: string | null;
+  /** Default for new sessions: students must be within 20 m of the lecturer's reference point. */
   locationRequired: boolean;
-  defaultGeofenceRadiusM: number;
-  minGpsAccuracyM: number;
-  venueCaptureMaxAccuracyM: number;
+  /** Student readings less precise than this (m) are "uncertain" and the student retries. */
+  studentMaxAccuracyM: number;
+  /** The lecturer's reference reading must be at least this precise (m). */
+  lecturerMaxAccuracyM: number;
   maxLocationAgeSeconds: number;
   locationTimeoutSeconds: number;
   locationSampleCount: number;
@@ -125,11 +127,6 @@ export type ClassItem = {
   room: string | null;
   status: string;
   courseId: string | null;
-  defaultLatitude: number | null;
-  venueLocationSource?: 'GPS' | 'MAP' | null;
-  venueAccuracyM?: number | null;
-  venueCapturedAt?: string | null;
-  defaultLongitude: number | null;
   course: { id: string; code: string; title: string } | null;
   semester: Ref | null;
   lecturers: { lecturerId: string; role: string; lecturer: { id: string; firstName: string; lastName: string; title: string | null; email: string } }[];
@@ -144,11 +141,6 @@ export type EventItem = {
   startsAt: string;
   endsAt: string;
   requireRegistration: boolean;
-  defaultLatitude: number | null;
-  venueLocationSource?: 'GPS' | 'MAP' | null;
-  venueAccuracyM?: number | null;
-  venueCapturedAt?: string | null;
-  defaultLongitude: number | null;
   status: string;
   _count?: { participants: number; attendanceSessions: number };
 };
@@ -180,11 +172,15 @@ export type AttendanceSession = {
   expiresAt: string;
   closedAt: string | null;
   revokedAt: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  radiusM: number;
-  minAccuracyM: number;
-  locationRequired: boolean;
+  /** The lecturer's position when the QR code was generated (staff only; never sent to students). */
+  referenceLatitude: number | null;
+  referenceLongitude: number | null;
+  referenceAccuracyMeters: number | null;
+  referenceCapturedAt: string | null;
+  locationSource: string | null;
+  maximumDistanceMeters: number;
+  studentMaxAccuracyM: number;
+  locationVerificationEnabled: boolean;
   selfieRequired: boolean;
   requireEnrollment: boolean;
   lateAfter: string | null;

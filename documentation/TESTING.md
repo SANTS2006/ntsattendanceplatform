@@ -5,11 +5,11 @@
 | Backend unit + integration | `npm test --workspace backend` | 115 | Geofence math, student-ID rules, crypto, TOTP, tenant query scoping, time zones, Brevo mailer; auth (code sign-up, lockout, refresh rotation and reuse, CSRF, reset, MFA), Google sign-in, onboarding, permissions, platform separation, privilege escalation, invitations, students, imports (CSV, Excel, preview table), reports (CSV/XLSX/PDF), API conventions, OpenAPI coverage, security headers; profile pictures, email change with code, generic bulk imports, support tickets, feedback, R2 backup + restore |
 | Tenant isolation | (included above) `tests/tenancy` | 17 | API, tenant client, RLS, triggers, immutability, append-only audit, file signatures |
 | Attendance | (included above) `tests/attendance` | 20 | QR validity/expiry/revocation/tampering, attempt binding, student verification and enumeration caps, location, selfie validation and EXIF stripping, submission, idempotency, **15 concurrent duplicates → 1 record**, late rules |
-| GPS geofencing | `npx vitest run tests/attendance/geofence.test.ts tests/unit/lib.test.ts` (backend) | 21 + 11 | Accuracy matrix 5/20/50/100/1000/20000 m, fresh vs stale, invalid coordinates, distance/boundary (radius never widened by accuracy), lecturer capture rejection (±20 km), manual map venue + audit, unverified legacy venue, policy exposed to clients, student retry, verified location reused at submit, client flags ignored, cross-tenant attempt, retry limit, duplicate attendance |
-| Frontend location | `src/lib/geo.test.ts`, `src/features/attend/attend.test.tsx` (frontend) | 18 + 3 | watchPosition acquisition with a fake navigator: best reading (no averaging), stability, early stop, ±20,000 m, cached reading, denied/unavailable, sample budget; student page imprecise-reading retry and permission denial |
+| Proximity verification | `npx vitest run tests/attendance/proximity.test.ts tests/unit/lib.test.ts` (backend) | 28 + 65 | Lecturer reference saved (accuracy, time, audit), refused at ±25/1,000/20,000 m, stale/missing/invalid; reference never sent to students; rotation never moves it; students at 0/5/10/15/19/20/21/50 m; boundary uncertainty; poor accuracy → uncertain (never "outside"); stale; invalid coordinates; expired session; server-computed distance recorded; duplicate and concurrent submissions → 1 record; audited reference change re-checks accepted students; cross-tenant; retry limit |
+| Frontend location | `src/lib/geo.test.ts`, `src/features/attend/attend.test.tsx` (frontend) | 18 + 4 | watchPosition acquisition with a fake navigator: best reading (no averaging), stability, early stop, ±20,000 m, cached reading, denied/unavailable, sample budget; student page: outside-20 m rejection, poor accuracy shown as retry then accepted, missing lecturer location, permission denial |
 | Lecturer accounts | `npx vitest run tests/integration/lecturer-accounts.test.ts` (backend) | 5 | Account created on add (placeholder, Lecturer role, setup email), setup link completes it (single-use), self sign-up with the same email keeps the lecturer role and creates an owned organization with no data crossover, existing account added and notified, resend replaces older links, "Forgot password" completes a pending account |
 | Frontend unit | `npm test --workspace frontend` | 12 | Student-ID counter and auto-verify, error screens, submit with idempotency key, role-aware navigation, route guards, placeholder generation |
-| End-to-end (Playwright) | `PW_CHANNEL=msedge npm run test:e2e --workspace frontend` | 8 | Lecturer venue capture (±20 km refused, ±8 m accepted) and map placement labelled manual; Sign-up (terms checkbox) with emailed code → onboarding; lecturer session → phone check-in with geolocation → live dashboard; geofence rejection; invalid QR; Add Students file upload; sign-out animation and revocation |
+| End-to-end (Playwright) | `PW_CHANNEL=msedge npm run test:e2e --workspace frontend` | 11 | `proximity.spec.ts`: lecturer ±20 km reading refused (no QR) then ±6 m registers the reference and generates the QR; student within 20 m accepted → ID → recorded → live update; student 50 m away rejected; ±60 m reading shown as retry then accepted; audited location update; ended session refused. `attendance.spec.ts`: sign-up → onboarding; invalid QR; Add Students upload; sign-out |
 
 Backend tests run against a real PostgreSQL test database — a dedicated Neon **test** branch
 (`TEST_DATABASE_URL` / `TEST_DIRECT_URL`), migrated automatically. Tests run with `NODE_ENV=test`:
@@ -21,8 +21,9 @@ everything after verification runs for real.
 **E2E safety:** `dev:sandbox` uses `DATABASE_URL` from `backend/.env`. Before running Playwright, start
 the API yourself with `DATABASE_URL`/`DIRECT_URL` set to the test database (environment variables
 override the `.env` file) and seed it (`npm run db:seed --workspace backend` with the same variables),
-so E2E data never reaches production. Geolocation in E2E is simulated by Playwright; real-device
-classroom testing is still required.
+so E2E data never reaches production. Also set `REDIS_URL=` (empty) so the sandbox API never uses the
+production Redis. Geolocation in E2E is simulated by Playwright; real-device classroom testing is
+still required.
 
 ## Measured load (one developer machine)
 

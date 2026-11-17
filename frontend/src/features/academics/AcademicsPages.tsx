@@ -101,7 +101,6 @@ export function ClassesPage() {
           { name: 'courseId', label: 'Course', type: 'ref', url: '/courses', optionLabel: (c) => `${c.code} · ${c.title}` },
           { name: 'semesterId', label: 'Semester', type: 'ref', url: '/semesters', optionLabel: (s) => `${s.academicYear?.name ?? ''} ${s.name}` },
           { name: 'room', label: 'Room / venue', type: 'text', max: 80, wide: true },
-          { name: 'venueLocation', label: 'Venue location', type: 'location', latitude: 'defaultLatitude', longitude: 'defaultLongitude' },
         ]}
       />
     </div>
@@ -171,7 +170,6 @@ export function ClassDetailPage() {
           <dl className="mt-4 space-y-2 border-t border-slate-100 pt-4 text-sm">
             <div className="flex justify-between"><dt className="text-slate-500">Room</dt><dd>{c.room ?? '—'}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">Semester</dt><dd>{c.semester?.name ?? '—'}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">Venue location</dt><dd>{c.defaultLatitude != null ? `${c.defaultLatitude.toFixed(4)}, ${c.defaultLongitude?.toFixed(4)}` : 'Not set'}</dd></div>
           </dl>
         </Card>
         <Card title={<span className="inline-flex items-center gap-2"><Users className="h-4 w-4" /> Enrolled students</span>} className="lg:col-span-2" padded={false}

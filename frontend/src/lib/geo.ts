@@ -1,5 +1,5 @@
 /**
- * NTS location acquisition service (lecturer venue capture and student check-in).
+ * NTS location acquisition service (lecturer reference point and student check-in).
  *
  * Why: a single getCurrentPosition() often returns the first, coarse fix — Wi-Fi/IP positioning
  * can be off by kilometres (laptops typically report ±1–20 km). We watch the position, keep only
@@ -158,13 +158,3 @@ export function acquireLocation(opts: AcquireOptions): Promise<AcquireResult> {
 
 /** Payload sent to the server: raw coordinates, reported accuracy and freshness information. */
 export const readingPayload = (r: Reading) => ({ latitude: r.latitude, longitude: r.longitude, accuracy: r.accuracy, timestamp: r.timestamp, clientTime: Date.now() });
-
-/** Back-compat helper used by older callers: best reading or throws. */
-export async function bestPosition(opts: { targetAccuracy?: number; maxWaitMs?: number; onProgress?: (fix: Reading) => void } = {}) {
-  const r = await acquireLocation({
-    targetAccuracyM: opts.targetAccuracy ?? 15,
-    timeoutMs: opts.maxWaitMs ?? 60_000,
-    onSample: (s) => s.best && opts.onProgress?.(s.best),
-  });
-  return r.best;
-}

@@ -18,7 +18,11 @@ developer's computer.
 Key constraints: student ID unique per organization (`organizationId, normalizedNumber`);
 attendance unique per `(sessionId, studentId)` and per `(sessionId, idempotencyKey)`; membership
 unique per `(organizationId, userId)`; composite indexes on tenant + common filters; CHECK
-constraints on coordinates, radius, accuracy and student-ID length settings. Tenant triggers, RLS
+constraints on coordinates, distance, accuracy and student-ID length settings. Each attendance
+session stores its own reference point (`referenceLatitude`, `referenceLongitude`,
+`referenceAccuracyMeters`, `referenceCapturedAt`, `locationVerificationEnabled`,
+`maximumDistanceMeters`); class/event `defaultLatitude`/`defaultLongitude` are deprecated (kept for
+history, no longer used). Tenant triggers, RLS
 and the append-only audit log live in raw-SQL migrations (Prisma ignores them, so they survive
 future `migrate` runs).
 

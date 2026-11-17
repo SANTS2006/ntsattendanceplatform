@@ -3,16 +3,17 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { QrCode } from 'lucide-react';
-import { errorMessage, get, post } from '@/api/client';
+import { QrCode, RotateCw } from 'lucide-react';
+import { ApiError, errorMessage, get, post } from '@/api/client';
 import { Button, Card, Input, PageHeader, Select, Tabs, Toggle, BackButton } from '@/components/ui';
 import { useOptions } from '@/hooks/useOptions';
-import { VenuePicker, type VenueValue } from '@/components/venue/VenuePicker';
+import { MAXIMUM_DISTANCE_METERS, ReferenceStatus, useReferenceCapture } from '@/components/location/ReferenceCapture';
+import { readingPayload } from '@/lib/geo';
 import type { ClassItem, EventItem, OrgSettings } from '@/types';
 
 const DURATIONS = [5, 10, 15, 30, 60];
 
-type Errors = Partial<Record<'target' | 'title' | 'duration' | 'lateAfter' | 'radius' | 'minAccuracy' | 'location', string>>;
+type Errors = Partial<Record<'target' | 'title' | 'duration' | 'lateAfter', string>>;
 
 const intIn = (v: string | number, min: number, max: number) => {
   const n = Number(v);
@@ -31,8 +32,6 @@ export function NewSessionPage() {
   const [duration, setDuration] = useState(15);
   const [customDuration, setCustomDuration] = useState('');
   const [title, setTitle] = useState('');
-  const [radius, setRadius] = useState('20');
-  const [minAccuracy, setMinAccuracy] = useState('100');
   const [locationRequired, setLocationRequired] = useState(true);
   const [selfieRequired, setSelfieRequired] = useState(true);
   const [requireEnrollment, setRequireEnrollment] = useState(true);
@@ -42,33 +41,19 @@ export function NewSessionPage() {
   const [errors, setErrors] = useState<Errors>({});
   const [submitted, setSubmitted] = useState(false);
 
-  /** Geofence anchor: a GPS reading that met the capture policy, a map placement, or the saved venue. */
-  const [venue, setVenue] = useState<VenueValue | null>(null);
-  const [venueTouched, setVenueTouched] = useState(false);
+  /** The lecturer's own position, captured when "Generate QR code" is pressed (the session reference point). */
+  const ref = useReferenceCapture();
 
   useEffect(() => {
     const s = settings.data;
     if (!s) return;
     setDuration(DURATIONS.includes(s.defaultQrExpiryMin) ? s.defaultQrExpiryMin : 15);
     if (!DURATIONS.includes(s.defaultQrExpiryMin)) setCustomDuration(String(s.defaultQrExpiryMin));
-    setRadius(String(Math.min(20, Math.max(14, s.defaultGeofenceRadiusM))));
-    setMinAccuracy(String(s.minGpsAccuracyM));
     setLocationRequired(s.locationRequired);
     setSelfieRequired(s.selfieRequired);
     setRequireEnrollment(s.requireEnrollment);
     setLateAfter(s.lateAfterMin ? String(s.lateAfterMin) : '');
   }, [settings.data]);
-
-  // Start from the venue saved on the selected class/event (with its provenance).
-  useEffect(() => {
-    if (venueTouched) return;
-    const row = target === 'class' ? classes.rows.find((c) => c.id === classId) : events.rows.find((e) => e.id === eventId);
-    setVenue(
-      row?.defaultLatitude != null && row.defaultLongitude != null
-        ? { latitude: Number(row.defaultLatitude), longitude: Number(row.defaultLongitude), source: row.venueLocationSource ?? null, accuracyM: row.venueAccuracyM ?? null, capturedAt: row.venueCapturedAt ?? null }
-        : null,
-    );
-  }, [classId, eventId, target, classes.rows, events.rows, venueTouched]);
 
   const validate = (): Errors => {
     const e: Errors = {};
@@ -76,15 +61,11 @@ export function NewSessionPage() {
     if (title.length > 150) e.title = 'Title must be at most 150 characters';
     if (customDuration && !intIn(customDuration, 1, 1440)) e.duration = 'Enter a duration between 1 and 1440 minutes';
     if (lateAfter && !intIn(lateAfter, 1, 1440)) e.lateAfter = 'Enter a whole number of minutes between 1 and 1440';
-    if (!intIn(radius, 14, 20)) e.radius = 'Enter a radius between 14 and 20 metres';
-    if (!intIn(minAccuracy, 5, 1000)) e.minAccuracy = 'Enter an accuracy between 5 and 1,000 metres';
-    if (locationRequired && !venue) e.location = 'Capture the venue location by GPS or select it on the map before generating the QR code.';
-    else if (locationRequired && venue && !venue.source) e.location = 'The saved venue location has not been verified. Capture it again by GPS or select it on the map.';
     return e;
   };
   useEffect(() => {
     if (submitted) setErrors(validate());
-  }, [submitted, target, classId, eventId, title, customDuration, lateAfter, radius, minAccuracy, locationRequired, venue]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [submitted, target, classId, eventId, title, customDuration, lateAfter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = async () => {
     setSubmitted(true);
@@ -93,19 +74,25 @@ export function NewSessionPage() {
     if (Object.keys(e).length) return toast.error(Object.values(e)[0]!);
     const minutes = customDuration ? Number(customDuration) : duration;
     setBusy(true);
+    // 1) Lecturer's current position — required before any QR code exists. A poor reading is not saved.
+    let reference: ReturnType<typeof readingPayload> | null = null;
+    if (locationRequired) {
+      const reading = await ref.capture();
+      if (!reading) {
+        setBusy(false);
+        return;
+      }
+      reference = readingPayload(reading);
+    }
     try {
       const r = await post<{ session: { id: string }; qr: unknown }>('/attendance/sessions', {
         classId: target === 'class' ? classId : null,
         eventId: target === 'event' ? eventId : null,
         title: title.trim() || undefined,
         durationMinutes: minutes,
-        // Raw coordinates (no rounding beyond ~1 cm) plus provenance; the server re-validates the accuracy.
-        ...(locationRequired && venue?.source
-          ? { latitude: Number(venue.latitude.toFixed(7)), longitude: Number(venue.longitude.toFixed(7)), locationSource: venue.source, locationAccuracyM: venue.accuracyM }
-          : {}),
-        radiusM: Number(radius),
-        minAccuracyM: Number(minAccuracy),
-        locationRequired,
+        // 2) The raw reading; the server re-checks coordinates, accuracy and freshness before saving it.
+        reference,
+        locationVerificationEnabled: locationRequired,
         selfieRequired,
         requireEnrollment,
         lateAfterMinutes: lateAfter ? Number(lateAfter) : null,
@@ -115,6 +102,7 @@ export function NewSessionPage() {
       toast.success('Session started');
       nav(`/app/attendance/${r.session.id}`);
     } catch (err) {
+      if (err instanceof ApiError && err.code === 'LECTURER_REFERENCE_LOCATION_INVALID') ref.fail(err.message);
       toast.error(errorMessage(err));
     } finally {
       setBusy(false);
@@ -137,6 +125,14 @@ export function NewSessionPage() {
           ) : (
             <Select label="Event *" options={events.options} placeholder={events.loading ? 'Loading…' : 'Select your event'} value={eventId} error={errors.target} onChange={(e) => setEventId(e.target.value)} />
           )}
+          {target === 'class' && classId && (() => {
+            const room = classes.rows.find((c) => c.id === classId)?.room;
+            return (
+              <p className="mt-2 text-sm text-slate-600">
+                Classroom: <strong>{room || 'not set'}</strong> — make sure you are in this room before generating the QR code.
+              </p>
+            );
+          })()}
           <div className="mt-4">
             <Input label="Session title (optional)" value={title} error={errors.title} onChange={(e) => setTitle(e.target.value)} maxLength={150} />
           </div>
@@ -170,28 +166,19 @@ export function NewSessionPage() {
         </div>
         <div className="min-w-0 space-y-6">
         <Card title="Location verification">
-          <Toggle label="Require students to be at the venue" description="Students’ phones must report a location within the radius below." checked={locationRequired} onChange={setLocationRequired} />
-
-          {locationRequired && (
+          <Toggle
+            label={`Students must be within ${MAXIMUM_DISTANCE_METERS} m of you`}
+            description="Your phone's GPS position when you generate the QR code becomes this session's reference point. The server checks each student's distance from it."
+            checked={locationRequired}
+            onChange={(v) => { setLocationRequired(v); ref.reset(); }}
+          />
+          {locationRequired ? (
             <div className="mt-3">
-              <VenuePicker
-                value={venue}
-                onChange={(v) => { setVenue(v); setVenueTouched(true); }}
-                radiusM={Number(radius) || 20}
-                onRadiusChange={(r) => setRadius(String(r))}
-                label={`${target === 'class' ? 'Classroom' : 'Event venue'} location`}
-              />
-              {errors.location && <p className="mt-2 text-sm font-medium text-rose-600">{errors.location}</p>}
+              <ReferenceStatus phase={ref.phase} maxAccuracyM={ref.policy.lecturerMaxAccuracyM} />
             </div>
-          )}
-
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Input label="Allowed radius (metres)" type="number" min={14} max={20} value={radius} error={errors.radius} hint="Students must be within 14–20 m of this location." onChange={(e) => setRadius(e.target.value)} />
-            <Input label="Maximum student GPS uncertainty (metres)" type="number" min={5} max={1000} value={minAccuracy} error={errors.minAccuracy} onChange={(e) => setMinAccuracy(e.target.value)} hint="Student readings less precise than this are rejected (they can retry)." />
-          </div>
-          {Number(minAccuracy) > Number(radius) && (
+          ) : (
             <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
-              The allowed student uncertainty (±{minAccuracy} m) is larger than the {radius} m radius. Readings that imprecise can place a student who is in the room outside the boundary (or the reverse). A lower value (for example 25–30 m) gives fairer results but more students may need to retry.
+              Without location verification, anyone with the QR code (or a photo of it) can check in from anywhere.
             </p>
           )}
         </Card>
@@ -203,8 +190,14 @@ export function NewSessionPage() {
 
         </div>
         <div className="flex justify-end xl:col-span-2">
-          <Button size="lg" className="w-full sm:w-auto" loading={busy} onClick={submit} icon={<QrCode className="h-5 w-5" />}>
-            Generate QR code
+          <Button
+            size="lg"
+            className="w-full sm:w-auto"
+            loading={busy}
+            onClick={submit}
+            icon={ref.phase.kind === 'POOR_ACCURACY' || ref.phase.kind === 'ERROR' ? <RotateCw className="h-5 w-5" /> : <QrCode className="h-5 w-5" />}
+          >
+            {ref.phase.kind === 'ACQUIRING' ? 'Getting your location…' : ref.phase.kind === 'POOR_ACCURACY' || ref.phase.kind === 'ERROR' ? 'Try again: capture location and generate QR' : 'Generate QR code'}
           </Button>
         </div>
       </div>

@@ -6,7 +6,6 @@ import { emitToSession } from '../../infra/realtime.js';
 import { imageStorage, tenantKey } from '../../infra/storage.js';
 import { hmac, randomToken, referenceNumber, safeEqual, sha256 } from '../../lib/crypto.js';
 import { AppError, conflict, forbidden, gone, notFound, tooMany, unprocessable } from '../../lib/errors.js';
-import { checkFreshness, checkLocation, clampRadius, type LocationFailureCode } from '../../lib/geo.js';
 import { signAttemptToken, verifyAttemptToken, type AttemptClaims } from '../../lib/jwt.js';
 import { logger } from '../../lib/logger.js';
 import { publicStudentIdFormat, validateStudentId } from '../../lib/studentId.js';
@@ -14,6 +13,7 @@ import { dateInZone, timeInZone } from '../../lib/time.js';
 import { audit, securityEvent } from '../audit/audit.service.js';
 import { processImage } from '../media/image.js';
 import { settingsFor } from '../organizations/settings.js';
+import { evaluateProximity, proximityMessage, type GpsReading, type ProximityResult } from '../attendance/proximity.service.js';
 
 /**
  * Anonymous student attendance workflow.
@@ -26,13 +26,10 @@ import { settingsFor } from '../organizations/settings.js';
 
 export const MESSAGES = {
   STUDENT_NOT_FOUND: 'Student ID not found. Please check your ID and try again.',
-  OUTSIDE_GEOFENCE: 'You are not within the class attendance location. You cannot record your attendance.',
-  GPS_ACCURACY_INSUFFICIENT: 'Your location is not accurate enough to confirm you are in the venue. Turn on precise location (GPS), wait a few seconds and try again.',
-  STALE_LOCATION: 'Your device returned an old (cached) location. Please try again to get a fresh reading.',
-  LOCATION_REQUIRED: 'Location access is required to record attendance for this session.',
-  INVALID_COORDINATES: 'Your device returned an invalid location. Please try again.',
+  LOCATION_NOT_VERIFIED: 'Confirm your location first: you must be within 20 m of your lecturer to record attendance for this session.',
   QR_INVALID: 'This attendance QR code is not valid.',
   QR_EXPIRED: 'This attendance QR code has expired. Ask your lecturer for a new code.',
+  ATTENDANCE_SESSION_EXPIRED: 'This attendance session has ended. Ask your lecturer for a new QR code.',
   SESSION_CLOSED: 'This attendance session has been closed.',
   SESSION_REVOKED: 'This attendance QR code has been revoked.',
   NOT_ENROLLED: 'You are not enrolled in this class or event, so you cannot record attendance here.',
@@ -69,7 +66,7 @@ async function loadSessionTree(organizationId: string, sessionId: string): Promi
 function assertSessionOpen(s: AttendanceSession, now = new Date()) {
   if (s.status === 'REVOKED') throw gone(MESSAGES.SESSION_REVOKED, 'SESSION_REVOKED');
   if (s.status === 'CLOSED') throw gone(MESSAGES.SESSION_CLOSED, 'SESSION_CLOSED');
-  if (s.expiresAt <= now) throw gone(MESSAGES.QR_EXPIRED, 'QR_EXPIRED');
+  if (s.expiresAt <= now) throw gone(MESSAGES.ATTENDANCE_SESSION_EXPIRED, 'ATTENDANCE_SESSION_EXPIRED');
 }
 
 /**
@@ -121,9 +118,12 @@ async function recordStep(
   }
 }
 
-async function recentFailures(organizationId: string, sessionId: string, step: VerificationStep, ch: string) {
+async function recentFailures(organizationId: string, sessionId: string, step: VerificationStep, ch: string, reasons?: { in?: string[]; notIn?: string[] }) {
   return tenantDb(organizationId).attendanceVerification.count({
-    where: { sessionId, step, success: false, clientHash: ch, createdAt: { gte: new Date(Date.now() - FAILURE_WINDOW_MS) } },
+    where: {
+      sessionId, step, success: false, clientHash: ch, createdAt: { gte: new Date(Date.now() - FAILURE_WINDOW_MS) },
+      ...(reasons ? { reasonCode: reasons } : {}),
+    },
   });
 }
 
@@ -147,19 +147,17 @@ export async function validate(raw: string, req: Request) {
       lecturer: session.lecturer ? `${session.lecturer.title ? `${session.lecturer.title} ` : ''}${session.lecturer.firstName} ${session.lecturer.lastName}` : null,
       expiresAt: session.expiresAt,
       serverTime: new Date(),
-      locationRequired: session.locationRequired,
+      locationVerificationEnabled: session.locationVerificationEnabled,
       selfieRequired: session.selfieRequired,
-      radiusM: clampRadius(session.radiusM),
-      minAccuracyM: session.minAccuracyM,
-      locationPolicy: session.locationRequired
+      // The rule only — the lecturer's reference coordinates are never sent to students.
+      locationPolicy: session.locationVerificationEnabled
         ? {
-            radiusM: clampRadius(session.radiusM),
-            maxAccuracyM: session.minAccuracyM,
+            maximumDistanceMeters: session.maximumDistanceMeters,
+            maxAccuracyM: session.studentMaxAccuracyM,
             maxLocationAgeSeconds: session.maxLocationAgeSeconds,
             timeoutSeconds: settings.locationTimeoutSeconds,
             sampleCount: settings.locationSampleCount,
             maxAttempts: settings.maxFailedLocationAttempts,
-            venueSource: session.locationSource,
           }
         : null,
     },
@@ -182,6 +180,8 @@ async function assertEligible(db: TenantTx | ReturnType<typeof tenantDb>, sessio
 
 export async function verifyStudent(raw: string, attempt: string | undefined, studentIdInput: string, req: Request) {
   const { org, session, token, claims: prior } = await resolveAttempt(raw, attempt, false);
+  // Location comes first: no student lookups until the server has accepted this device's location.
+  if (session.locationVerificationEnabled && !verifiedLocation(prior)) throw forbidden(MESSAGES.LOCATION_NOT_VERIFIED, 'LOCATION_NOT_VERIFIED');
   const ch = clientHash(req, session.id);
   if ((await recentFailures(org.id, session.id, 'STUDENT_ID', ch)) >= MAX_ID_FAILURES) {
     await securityEvent({
@@ -226,61 +226,81 @@ export async function verifyStudent(raw: string, attempt: string | undefined, st
   };
 }
 
-// ── Step 3: verify location ────────────────────────────────────────────────
+// ── Step 3 (first when enabled): verify location ──────────────────────────
 
-const policyOf = (s: AttendanceSession) => ({ required: s.locationRequired, latitude: s.latitude, longitude: s.longitude, radiusM: s.radiusM, minAccuracyM: s.minAccuracyM });
+/** An accepted location stays valid for the rest of the attempt (no second reading at submit). */
+const VERIFIED_LOCATION_TTL_MS = 15 * 60_000;
+const verifiedLocation = (c: AttemptClaims) => (c.loc && Date.now() - c.loc.at <= VERIFIED_LOCATION_TTL_MS ? c.loc : null);
 
-function locationError(code: LocationFailureCode, session: Pick<AttendanceSession, 'radiusM' | 'minAccuracyM' | 'maxLocationAgeSeconds'>, distanceM?: number, accuracyM?: number, ageMs?: number) {
-  const status = code === 'OUTSIDE_GEOFENCE' ? 403 : 422;
-  return new AppError(status, code, MESSAGES[code], {
-    ...(distanceM != null ? { distanceM: Math.round(distanceM) } : {}),
-    ...(accuracyM != null ? { accuracyM: Math.round(accuracyM) } : {}),
-    ...(ageMs != null ? { ageSeconds: Math.round(ageMs / 1000) } : {}),
-    radiusM: clampRadius(session.radiusM),
-    maxAccuracyM: session.minAccuracyM,
-    maxLocationAgeSeconds: session.maxLocationAgeSeconds,
+const policyOf = (s: AttendanceSession, requireTimestamp: boolean) => ({
+  maximumDistanceMeters: s.maximumDistanceMeters,
+  studentMaxAccuracyM: s.studentMaxAccuracyM,
+  maxLocationAgeSeconds: s.maxLocationAgeSeconds,
+  requireTimestamp,
+});
+const referenceOf = (s: AttendanceSession) => ({ latitude: s.referenceLatitude, longitude: s.referenceLongitude });
+
+const STATUS: Record<ProximityResult['outcome'], number> = {
+  LOCATION_ACCEPTED: 200,
+  LOCATION_OUTSIDE_RADIUS: 403,
+  LOCATION_UNCERTAIN: 422,
+  LOCATION_ACQUISITION_FAILED: 422,
+  LOCATION_STALE: 422,
+  LECTURER_REFERENCE_LOCATION_INVALID: 409,
+  ATTENDANCE_SESSION_EXPIRED: 410,
+};
+
+/** Structured outcome for the client: the code, a clear message, and the numbers behind it. */
+function proximityError(r: ProximityResult) {
+  return new AppError(STATUS[r.outcome], r.outcome, proximityMessage(r), {
+    outcome: r.outcome,
+    retryable: r.retryable,
+    ...(r.reason ? { reason: r.reason } : {}),
+    ...(r.distanceMeters != null ? { distanceM: Math.round(r.distanceMeters) } : {}),
+    ...(r.accuracyMeters != null ? { accuracyM: Math.round(r.accuracyMeters) } : {}),
+    ...(r.ageSeconds != null ? { ageSeconds: r.ageSeconds } : {}),
+    maximumDistanceMeters: r.maximumDistanceMeters,
   });
 }
 
-/** A verified location stays valid for the rest of the attempt (no second reading at submit). */
-const VERIFIED_LOCATION_TTL_MS = 15 * 60_000;
-type ReadingInput = { latitude?: number | null; longitude?: number | null; accuracy?: number | null; timestamp?: number | null; clientTime?: number | null };
+/** Uncertain readings are expected indoors, so they have a larger allowance than hard failures. */
+const UNCERTAIN_ALLOWANCE = 3;
 
-export async function verifyLocation(raw: string, attempt: string | undefined, loc: ReadingInput, req: Request) {
+export async function verifyLocation(raw: string, attempt: string | undefined, loc: GpsReading, req: Request) {
   const { org, session, claims, token } = await resolveAttempt(raw, attempt, false);
   const ch = clientHash(req, session.id);
   const settings = await settingsFor(org.id);
-  if ((await recentFailures(org.id, session.id, 'LOCATION', ch)) >= settings.maxFailedLocationAttempts) {
+  if (!session.locationVerificationEnabled) {
+    // Nothing to check; keep the step idempotent for older clients.
+    return { attemptToken: attempt!, outcome: 'LOCATION_NOT_REQUIRED' as const, accepted: true, maximumDistanceMeters: session.maximumDistanceMeters };
+  }
+  const [hard, uncertain] = await Promise.all([
+    recentFailures(org.id, session.id, 'LOCATION', ch, { notIn: ['LOCATION_UNCERTAIN'] }),
+    recentFailures(org.id, session.id, 'LOCATION', ch, { in: ['LOCATION_UNCERTAIN'] }),
+  ]);
+  if (hard >= settings.maxFailedLocationAttempts || uncertain >= settings.maxFailedLocationAttempts * UNCERTAIN_ALLOWANCE) {
     await securityEvent({
       type: 'attendance.location_attempts_exceeded', severity: 'LOW', organizationId: org.id,
-      description: 'Repeated failed location checks from one client', metadata: { sessionId: session.id }, req,
+      description: 'Repeated failed location checks from one client', metadata: { sessionId: session.id, hard, uncertain }, req,
     });
-    throw tooMany('Too many failed location checks. Please ask your lecturer for help.', 'LOCATION_ATTEMPTS_EXCEEDED');
+    throw tooMany('Too many unsuccessful location checks. Please ask your lecturer for help.', 'LOCATION_ATTEMPTS_EXCEEDED');
   }
-  // 1) freshness, 2) accuracy, 3) distance — all decided here, never by the client.
-  const fresh = checkFreshness(loc, session.maxLocationAgeSeconds);
-  if (!fresh.ok) {
-    await recordStep(org.id, session.id, 'LOCATION', false, { studentId: claims.stu, reasonCode: fresh.code, accuracyM: loc.accuracy ?? null, clientHash: ch });
-    throw locationError(fresh.code, session, undefined, loc.accuracy ?? undefined, fresh.ageMs);
-  }
-  const result = checkLocation(policyOf(session), loc);
-  if (!result.ok) {
-    await recordStep(org.id, session.id, 'LOCATION', false, { studentId: claims.stu, reasonCode: result.code, distanceM: result.distanceM, accuracyM: result.accuracyM, clientHash: ch });
-    throw locationError(result.code, session, result.distanceM, result.accuracyM);
-  }
-  await recordStep(org.id, session.id, 'LOCATION', true, { studentId: claims.stu, distanceM: result.distanceM, accuracyM: result.accuracyM, clientHash: ch });
-  const verifiedLoc = result.verified && loc.latitude != null && loc.longitude != null
-    ? { lat: loc.latitude, lng: loc.longitude, acc: loc.accuracy ?? 0, at: Date.now() }
-    : undefined;
+  // Distance, accuracy and freshness are decided here, never by the client.
+  const r = evaluateProximity({ session, reference: referenceOf(session), reading: loc, policy: policyOf(session, true) });
+  await recordStep(org.id, session.id, 'LOCATION', r.accepted, {
+    studentId: claims.stu, reasonCode: r.accepted ? undefined : r.outcome, distanceM: r.distanceMeters ?? null, accuracyM: r.accuracyMeters ?? null, clientHash: ch,
+  });
+  if (!r.accepted) throw proximityError(r);
+  const accepted = { lat: loc.latitude!, lng: loc.longitude!, acc: loc.accuracy!, at: Date.now() };
   return {
-    // Server-signed proof of this check; the client uses it for the remaining steps.
-    attemptToken: signAttemptToken({ org: org.id, ses: session.id, qrt: token.id, ...(claims.stu ? { stu: claims.stu } : {}), ...(verifiedLoc ? { loc: verifiedLoc } : {}) }),
-    maxAccuracyM: session.minAccuracyM,
-    withinGeofence: result.verified,
-    required: session.locationRequired,
-    distanceM: result.distanceM != null ? Math.round(result.distanceM) : null,
-    accuracyM: result.accuracyM != null ? Math.round(result.accuracyM) : null,
-    radiusM: clampRadius(session.radiusM),
+    // Server-signed proof of this decision; the client presents it for the remaining steps.
+    attemptToken: signAttemptToken({ org: org.id, ses: session.id, qrt: token.id, ...(claims.stu ? { stu: claims.stu } : {}), loc: accepted }),
+    outcome: r.outcome,
+    accepted: true,
+    distanceM: Math.round(r.distanceMeters!),
+    accuracyM: Math.round(r.accuracyMeters!),
+    maximumDistanceMeters: r.maximumDistanceMeters,
+    message: proximityMessage(r),
   };
 }
 
@@ -315,7 +335,7 @@ export async function uploadSelfie(raw: string, attempt: string | undefined, fil
 
 // ── Step 5: submit ─────────────────────────────────────────────────────────
 
-type SubmitInput = ReadingInput & { selfieId?: string | null };
+type SubmitInput = { selfieId?: string | null };
 
 async function successPayload(organizationId: string, recordId: string, confirmationToken: string | null) {
   const db = tenantDb(organizationId);
@@ -373,20 +393,21 @@ export async function submit(raw: string, attempt: string | undefined, idempoten
     if (!student) throw new AppError(404, 'STUDENT_NOT_FOUND', MESSAGES.STUDENT_NOT_FOUND);
     await assertEligible(tx, session, student.id);
 
-    // Prefer the location the server already verified in this attempt (signed claim) so a second,
-    // independent reading cannot contradict the first; otherwise check the submitted reading.
-    const verified = claims.loc && Date.now() - claims.loc.at <= VERIFIED_LOCATION_TTL_MS ? claims.loc : null;
-    const reading: ReadingInput = verified
-      ? { latitude: verified.lat, longitude: verified.lng, accuracy: verified.acc }
-      : input;
-    if (!verified) {
-      const freshness = checkFreshness(input, fresh.maxLocationAgeSeconds);
-      if (!freshness.ok) throw locationError(freshness.code, fresh, undefined, input.accuracy ?? undefined, freshness.ageMs);
-    }
-    const loc = checkLocation(policyOf(fresh), reading);
-    if (!loc.ok) {
-      await recordStep(org.id, session.id, 'SUBMIT', false, { studentId, reasonCode: loc.code, distanceM: loc.distanceM, accuracyM: loc.accuracyM, clientHash: ch }, tx);
-      throw locationError(loc.code, fresh, loc.distanceM, loc.accuracyM);
+    // The location accepted earlier in this attempt (server-signed claim) is re-checked against the
+    // session's CURRENT reference point, so an audited reference correction applies to everyone.
+    let proximity: ProximityResult | null = null;
+    if (fresh.locationVerificationEnabled) {
+      const v = verifiedLocation(claims);
+      if (!v) throw forbidden(MESSAGES.LOCATION_NOT_VERIFIED, 'LOCATION_NOT_VERIFIED');
+      proximity = evaluateProximity({
+        session: fresh, reference: referenceOf(fresh), now,
+        reading: { latitude: v.lat, longitude: v.lng, accuracy: v.acc, timestamp: v.at, clientTime: v.at },
+        policy: policyOf(fresh, false),
+      });
+      if (!proximity.accepted) {
+        await recordStep(org.id, session.id, 'SUBMIT', false, { studentId, reasonCode: proximity.outcome, distanceM: proximity.distanceMeters ?? null, accuracyM: proximity.accuracyMeters ?? null, clientHash: ch }, tx);
+        throw proximityError(proximity);
+      }
     }
 
     let selfieId: string | null = null;
@@ -403,7 +424,8 @@ export async function submit(raw: string, attempt: string | undefined, idempoten
     const isLate = !!fresh.lateAfter && now > fresh.lateAfter;
     if (isLate && !fresh.allowLate) throw forbidden('The attendance window for on-time arrival has passed and late attendance is not allowed.', 'LATE_NOT_ALLOWED');
 
-    const flags = [...loc.flags, ...(duplicateImage ? ['DUPLICATE_SELFIE_IN_SESSION'] : [])];
+    const flags = [...(proximity?.flags ?? []), ...(duplicateImage ? ['DUPLICATE_SELFIE_IN_SESSION'] : [])];
+    const v = verifiedLocation(claims);
     const record = await tx.attendanceRecord.create({
       data: {
         organizationId: org.id,
@@ -424,21 +446,27 @@ export async function submit(raw: string, attempt: string | undefined, idempoten
         submittedAt: now,
         attendanceDate: new Date(dateInZone(now, org.timezone)),
         status: isLate ? 'LATE' : 'PRESENT',
-        locationVerified: fresh.locationRequired || loc.distanceM != null ? loc.verified : null,
-        distanceM: loc.distanceM,
-        gpsAccuracyM: loc.accuracyM,
-        latitude: input.latitude ?? null,
-        longitude: input.longitude ?? null,
+        locationVerified: proximity ? proximity.accepted : null,
+        distanceM: proximity?.distanceMeters ?? null,
+        gpsAccuracyM: proximity?.accuracyMeters ?? null,
+        latitude: proximity && v ? v.lat : null,
+        longitude: proximity && v ? v.lng : null,
         selfieId,
         verificationMeta: {
           flags,
           selfie: selfieId ? 'CAPTURED_NOT_BIOMETRICALLY_VERIFIED' : 'NONE',
           locationSource: 'BROWSER_GEOLOCATION',
+          proximity: proximity
+            ? {
+                outcome: proximity.outcome, maximumDistanceMeters: proximity.maximumDistanceMeters,
+                referenceCapturedAt: fresh.referenceCapturedAt?.toISOString() ?? null, referenceAccuracyMeters: fresh.referenceAccuracyMeters,
+              }
+            : null,
           qrTokenId: claims.qrt,
         },
       },
     });
-    await recordStep(org.id, session.id, 'SUBMIT', true, { studentId, distanceM: loc.distanceM, accuracyM: loc.accuracyM, clientHash: ch }, tx);
+    await recordStep(org.id, session.id, 'SUBMIT', true, { studentId, distanceM: proximity?.distanceMeters ?? null, accuracyM: proximity?.accuracyMeters ?? null, clientHash: ch }, tx);
     return { replay: false as const, recordId: record.id, record, flags };
   }).catch(async (err) => {
     // Concurrent duplicate: the unique (sessionId, studentId) constraint is the final arbiter.

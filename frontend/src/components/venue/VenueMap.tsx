@@ -27,7 +27,7 @@ function ClickToPlace({ onPick }: { onPick: (p: LatLng) => void }) {
 }
 
 /**
- * OpenStreetMap view with the venue marker and the geofence circle.
+ * OpenStreetMap view of the session reference point with the 20 m attendance circle.
  * `editable` lets the user click or drag to place the marker.
  */
 export function VenueMap({

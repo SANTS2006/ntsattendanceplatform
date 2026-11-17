@@ -69,9 +69,10 @@ const settingsBody = z
     studentIdAllowSpaces: z.boolean(),
     studentIdExample: z.string().trim().max(64).nullable(),
     locationRequired: z.boolean(),
-    defaultGeofenceRadiusM: z.number().int().min(14, 'The radius must be at least 14 m').max(20, 'The radius must be at most 20 m'),
-    minGpsAccuracyM: z.number().int().min(5, 'Use at least 5 m').max(1_000, 'Use at most 1,000 m'),
-    venueCaptureMaxAccuracyM: z.number().int().min(5, 'Use at least 5 m').max(100, 'Use at most 100 m'),
+    /** Student readings less precise than this are "uncertain" (retry). The 20 m distance itself is fixed. */
+    studentMaxAccuracyM: z.number().int().min(5, 'Use at least 5 m').max(100, 'Use at most 100 m'),
+    /** The lecturer's reference reading must be at least this precise. */
+    lecturerMaxAccuracyM: z.number().int().min(5, 'Use at least 5 m').max(50, 'Use at most 50 m'),
     maxLocationAgeSeconds: z.number().int().min(5).max(300),
     locationTimeoutSeconds: z.number().int().min(10).max(180),
     locationSampleCount: z.number().int().min(1).max(20),

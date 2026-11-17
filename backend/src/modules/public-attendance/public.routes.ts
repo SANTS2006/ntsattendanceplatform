@@ -45,10 +45,11 @@ r(
   async (req, res) => ok(res, await svc.verifyStudent(req.valid.params.token, attempt(req.headers['x-attempt-token']), req.valid.body.studentId, req), { message: 'Student verified' }),
 );
 
+/** Raw device reading; validity, freshness and distance are judged by the proximity service. */
 const coords = z.object({
   latitude: z.number().finite().nullable().optional(),
   longitude: z.number().finite().nullable().optional(),
-  accuracy: z.number().finite().nonnegative().max(100_000).nullable().optional(),
+  accuracy: z.number().finite().nullable().optional(),
   /** Position.timestamp (ms) and the device clock when sending — used to reject stale/cached readings. */
   timestamp: z.number().finite().nullable().optional(),
   clientTime: z.number().finite().nullable().optional(),
@@ -56,7 +57,7 @@ const coords = z.object({
 
 r(
   {
-    method: 'post', path: '/:token/verify-location', summary: 'Server-side geofence check of device coordinates', tags: T, access: 'public',
+    method: 'post', path: '/:token/verify-location', summary: "Server-side proximity check: within 20 m of the lecturer's reference point (first step when location is required)", tags: T, access: 'public',
     middleware: [limits.publicLocation()], params: tokenParam, body: coords,
   },
   async (req, res) => ok(res, await svc.verifyLocation(req.valid.params.token, attempt(req.headers['x-attempt-token']), req.valid.body, req)),
@@ -73,7 +74,7 @@ r(
 r(
   {
     method: 'post', path: '/:token/submit', summary: 'Submit attendance (requires Idempotency-Key header)', tags: T, access: 'public',
-    middleware: [limits.publicSubmit()], params: tokenParam, body: coords.extend({ selfieId: z.string().uuid().nullable().optional() }),
+    middleware: [limits.publicSubmit()], params: tokenParam, body: z.object({ selfieId: z.string().uuid().nullable().optional() }),
   },
   async (req, res) => {
     const out = await svc.submit(req.valid.params.token, attempt(req.headers['x-attempt-token']), req.get('idempotency-key'), req.valid.body, req);

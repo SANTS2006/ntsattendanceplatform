@@ -4,13 +4,13 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 
 /**
  * Seed data (backend/prisma/seed.ts): owner@demo.localhost, class CS201-A with students
- * 20240001–20240030 enrolled, venue at 8.4844, -13.2344. Password comes from backend/.env.
+ * 20240001–20240030 enrolled. Password comes from backend/.env.
  */
 const backendEnv = path.resolve(import.meta.dirname, '..', '..', 'backend', '.env');
 const SEED_PASSWORD = process.env.SEED_PASSWORD ?? fs.readFileSync(backendEnv, 'utf8').match(/^SEED_PASSWORD=(.*)$/m)?.[1]?.trim();
 const OWNER = process.env.SEED_OWNER_EMAIL ?? 'owner@demo.localhost';
 
-async function login(page: Page, email: string, password: string) {
+export async function login(page: Page, email: string, password: string) {
   await page.goto('/login');
   await page.getByLabel('Email address').fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);
@@ -64,95 +64,7 @@ test('register → 6-character email code → account created → onboard a new 
   await expect(page.getByText('Student ID format')).toBeVisible();
 });
 
-test('lecturer QR session → student check-in on a phone → live dashboard update', async ({ page, browser }) => {
-  test.skip(!SEED_PASSWORD, 'Seed the database and set SEED_PASSWORD');
-  test.setTimeout(180_000);
-  await login(page, OWNER, SEED_PASSWORD!);
-  await page.goto('/app/attendance/new');
-  await page.getByLabel('Class').selectOption({ label: 'CS201 · Group A' });
-  await page.getByRole('switch', { name: 'Require a selfie' }).click();
-  await page.getByRole('button', { name: 'Generate QR code' }).click();
-  await page.waitForURL(/\/app\/attendance\/[0-9a-f-]{36}/);
-  await expect(page.getByLabel('Attendance QR code')).toBeVisible();
-  const sessionId = page.url().split('/').pop()!;
-  const qrUrl = await page.evaluate((id) => JSON.parse(sessionStorage.getItem(`nts-qr-${id}`)!).url as string, sessionId);
-
-  // Student phone: mobile viewport + device geolocation ~6 m from the venue.
-  const phone = await browser.newContext({
-    viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
-    geolocation: { latitude: 8.48445, longitude: -13.23442, accuracy: 15 }, permissions: ['geolocation'],
-  });
-  const student = await phone.newPage();
-  await student.goto(new URL(qrUrl).pathname);
-  await student.getByRole('button', { name: 'Share my location' }).click();
-  // The device collects fresh readings (up to the session's timeout) before the server decides.
-  await expect(student.getByText('You are within the attendance area.')).toBeVisible({ timeout: 75_000 });
-  const idInput = student.getByRole('textbox', { name: 'Student ID' });
-  const studentNumber = `202400${String(10 + Math.floor(Math.random() * 20)).padStart(2, '0')}`;
-  await idInput.pressSequentially(studentNumber.slice(0, 7));
-  await expect(student.getByText('7/8')).toBeVisible();
-  await idInput.pressSequentially(studentNumber.slice(7));
-  await expect(student.getByText(studentNumber)).toBeVisible(); // auto-verified, no button press
-  await student.getByRole('button', { name: 'Record my attendance' }).click();
-  await expect(student.getByText('Attendance recorded')).toBeVisible();
-  await expect(student.getByText(/^NTS-/)).toBeVisible();
-
-  // Lecturer sees the check-in without reloading.
-  await expect(page.getByText('Live check-ins').locator('..').locator('..')).not.toContainText('New check-ins will appear here instantly', { timeout: 10_000 });
-  await phone.close();
-});
-
-test('student outside the geofence is rejected', async ({ page, browser }) => {
-  test.skip(!SEED_PASSWORD, 'Seed the database and set SEED_PASSWORD');
-  await login(page, OWNER, SEED_PASSWORD!);
-  await page.goto('/app/attendance/new');
-  await page.getByLabel('Class').selectOption({ label: 'CS201 · Group A' });
-  await page.getByRole('button', { name: 'Generate QR code' }).click();
-  await page.waitForURL(/\/app\/attendance\/[0-9a-f-]{36}/);
-  const sessionId = page.url().split('/').pop()!;
-  const qrUrl = await page.evaluate((id) => JSON.parse(sessionStorage.getItem(`nts-qr-${id}`)!).url as string, sessionId);
-  const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, geolocation: { latitude: 8.5, longitude: -13.2344, accuracy: 10 }, permissions: ['geolocation'] });
-  const student = await phone.newPage();
-  await student.goto(new URL(qrUrl).pathname);
-  await student.getByRole('button', { name: 'Share my location' }).click();
-  // ~1.7 km north: the server measures the distance and explains it; the student may retry.
-  await expect(student.getByText(/You appear to be about \d[\d,]* m from the venue \(allowed: \d+ m/)).toBeVisible({ timeout: 75_000 });
-  await expect(student.getByRole('button', { name: /try again/i })).toBeVisible();
-  await phone.close();
-});
-
-test('lecturer venue capture: an imprecise (±20 km) reading is refused; a precise one can be saved', async ({ browser }) => {
-  test.skip(!SEED_PASSWORD, 'Seed the database and set SEED_PASSWORD');
-  test.setTimeout(240_000);
-  // Lecturer on a phone at the venue, first with a laptop-style network fix (±20,000 m).
-  const ctx = await browser.newContext({ geolocation: { latitude: 8.4844, longitude: -13.2344, accuracy: 20_000 }, permissions: ['geolocation'] });
-  const page = await ctx.newPage();
-  await login(page, OWNER, SEED_PASSWORD!);
-  await page.goto('/app/attendance/new');
-  await page.getByLabel('Class').selectOption({ label: 'CS201 · Group A' });
-  await page.getByRole('button', { name: /Capture (location|again) \(GPS\)/ }).click();
-  await expect(page.getByText('Obtaining your current location. Please wait.')).toBeVisible();
-  await expect(page.getByText(/Your device reported location uncertainty of approximately 20,000 metres\. We cannot use this reading to register a classroom\./)).toBeVisible({ timeout: 90_000 });
-  // Generating now would use the class's saved venue, not the rejected reading; retry with a GPS fix.
-  await ctx.setGeolocation({ latitude: 8.48441, longitude: -13.23441, accuracy: 8 });
-  await page.getByRole('button', { name: 'Retry GPS capture' }).click();
-  await expect(page.getByText('Location accuracy is acceptable. You can save this classroom location.')).toBeVisible({ timeout: 90_000 });
-  await expect(page.getByText('±8 m')).toBeVisible();
-  await page.getByRole('button', { name: 'Generate QR code' }).click();
-  await page.waitForURL(/\/app\/attendance\/[0-9a-f-]{36}/);
-  await ctx.close();
-});
-
-test('lecturer venue on the map is labelled as manual, not GPS-verified', async ({ page }) => {
-  test.skip(!SEED_PASSWORD, 'Seed the database and set SEED_PASSWORD');
-  await login(page, OWNER, SEED_PASSWORD!);
-  await page.goto('/app/attendance/new');
-  await page.getByLabel('Class').selectOption({ label: 'CS201 · Group A' });
-  await page.getByRole('button', { name: 'Select on map' }).click();
-  await page.getByRole('button', { name: 'Use this location' }).click();
-  await expect(page.getByText('Location selected on the map')).toBeVisible();
-  await expect(page.getByText(/not a GPS-verified reading/)).toBeVisible();
-});
+// Lecturer QR generation and student check-in (proximity verification): see proximity.spec.ts.
 
 test('invalid QR codes show an error screen', async ({ page }) => {
   await page.goto(`/attend/${'x'.repeat(43)}`);

@@ -86,7 +86,6 @@ export function EventsPage() {
         fields={[
           { name: 'name', label: 'Event name', type: 'text', required: true, max: 150 }, { name: 'venue', label: 'Venue', type: 'text', max: 200 },
           { name: 'startsAt', label: 'Starts', type: 'datetime-local', required: true }, { name: 'endsAt', label: 'Ends', type: 'datetime-local', required: true, after: 'startsAt' },
-          { name: 'venueLocation', label: 'Venue location', type: 'location', latitude: 'defaultLatitude', longitude: 'defaultLongitude' },
           { name: 'requireRegistration', label: 'Only registered participants can check in', type: 'boolean' },
           { name: 'description', label: 'Description', type: 'textarea', max: 2000 },
         ]}

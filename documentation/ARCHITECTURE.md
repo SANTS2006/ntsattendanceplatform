@@ -31,7 +31,7 @@
 | `db/tenant.ts` | **Tenant-scoped data access**: query extension injecting `organizationId`, RLS-bound transactions (`tenantDb`, `withTenant`) |
 | `middleware/` | Authentication, tenant context, permission checks, rate limits, CSRF guard, error mapping |
 | `lib/route.ts` | `defineRoute`: one declaration registers the Express chain *and* its OpenAPI operation |
-| `lib/` | Crypto (tokens, AES-GCM, HMAC), JWT, TOTP, geofence math, student-ID rules, time zones |
+| `lib/` | Crypto (tokens, AES-GCM, HMAC), JWT, TOTP, Haversine distance and reading freshness, student-ID rules, time zones |
 | `infra/` | Redis, BullMQ queue (inline fallback in dev), Cloudinary storage, Brevo mailer, Cloudflare R2 backup store, Socket.IO |
 | `modules/*` | Feature modules: `auth`, `organizations`, `members`, `students` (+ import), `academics`, `lecturers`, `events`, `attendance`, `public-attendance`, `reports`, `platform`, `notifications`, `audit`, `media`, `health` |
 | `jobs/` | Background job handlers |
@@ -64,7 +64,7 @@ client plays the role of the repository layer: every tenant-owned query goes thr
 5. **All files on Cloudinary as private (`authenticated`) assets** — selfies, logos, profile pictures, imports and reports — reached only through short-lived signed URLs. Database backups go to Cloudflare R2.
 6. **Redis optional in development**: jobs run in-process, rate limits in memory. Production
    requires Redis (validated at startup).
-7. **Server clock and server math only**: QR expiry, attendance timestamps and geofence distance are
+7. **Server clock and server math only**: QR expiry, attendance timestamps and the distance to the lecturer's reference point are
    computed server-side.
 
 ## Scalability plan

@@ -1,6 +1,6 @@
 # NTSAttend — project progress
 
-_Last updated: 2026-11-16_
+_Last updated: 2026-11-17_
 
 ## Architecture (summary)
 
@@ -37,7 +37,8 @@ Details: [documentation/ARCHITECTURE.md](documentation/ARCHITECTURE.md).
 | 22 Lecturer accounts created automatically (setup email, resend, import) and one account across many organizations (own organization + lecturer roles, grouped switcher) | ✅ code + 5 integration tests |
 | 23 Public website redesign: three.js 3D hero (lazy-loaded), scroll-driven check-in story, reveal/tilt/parallax animations, new How it works page, rebuilt Features/Pricing/About/Contact/404, full footer | ✅ checked in the browser (desktop, phone, light/dark) |
 | 24 Requested changes (2026-11-16): full student email on the attendance pages, responsive full-width live session page, student form (email/department/program/level required, programs filtered by department, server check), no scroll bar on the website, full-width FAQ, editable permissions on existing roles (migration `role_permissions_customized`), navbar name with middle initial, organization logo card matching the profile card, full-screen image viewer with change/remove | ✅ type checks, 32 frontend tests, 6 new integration tests (`roles-students.test.ts`, incl. role changes staying in their own organization); logged-in pages not checked in a browser |
-| 20 GPS geofencing accuracy fix: venue capture gated by accuracy, manual map placement (Leaflet/OSM), multi-reading acquisition (best fresh reading, no averaging), server freshness → accuracy → distance checks, verified location carried to submit, configurable location policy with warnings, venue audit | ✅ code + automated tests; **not yet validated on real devices in a classroom** |
+| 25 Lecturer-generated QR proximity verification (replaces classroom geofencing): the lecturer's GPS position when the QR is generated is the session's fixed reference point; students must be within 20 m (accept if distance + accuracy ≤ 20, reject if distance − accuracy > 20, otherwise uncertain/retry); location is the first student step; audited reference correction; structured outcomes | ✅ code + automated tests (see below); **not yet validated on real smartphones** |
+| 20 GPS geofencing accuracy fix (superseded by 25 for the reference point): venue capture gated by accuracy, manual map placement (Leaflet/OSM), multi-reading acquisition (best fresh reading, no averaging), server freshness → accuracy → distance checks, verified location carried to submit, configurable location policy with warnings, venue audit | ✅ code + automated tests; **not yet validated on real devices in a classroom** |
 
 ## Project structure
 
@@ -53,7 +54,8 @@ documentation/  Architecture, API, security, database, tenant isolation, deploym
 `init`, `tenant_integrity` (RLS, triggers, CHECKs, append-only audit), `tenant_error_codes`,
 `email_code_and_google` (PendingRegistration, nullable password, googleId, avatarUrl),
 `support_feedback_backups_imports` (EmailChangeRequest, SupportTicket/Message, Feedback, Backup, import resource, avatarKey; RLS for tickets/feedback),
-`terms_acceptance`, `location_policy` (venue source/accuracy/captured-at on classes and events; session location snapshot; venue-capture, reading-age, timeout and sample-count settings), `role_permissions_customized` (flag on roles whose permissions were edited).
+`terms_acceptance`, `location_policy` (venue source/accuracy/captured-at on classes and events; session location snapshot; venue-capture, reading-age, timeout and sample-count settings), `role_permissions_customized` (flag on roles whose permissions were edited),
+`session_reference_point` (session columns renamed in place to `referenceLatitude`/`referenceLongitude`/`referenceAccuracyMeters`/`maximumDistanceMeters`/`studentMaxAccuracyM`/`locationVerificationEnabled`, new `referenceCapturedAt`; settings `studentMaxAccuracyM`/`lecturerMaxAccuracyM`, fixed-radius setting removed).
 
 ## API
 
@@ -111,6 +113,46 @@ maximum student GPS uncertainty from 50 m to 25–30 m after testing in your cla
 | Full backend suite (other 115 tests) | **not re-run** — ~1.6 s per query from this machine to Neon makes it take hours; run it in CI |
 | Playwright E2E (8 specs, 2 new for venue capture) | **not run** — would write to the production database (see above) |
 
+## Lecturer-generated QR proximity verification (2026-11-17)
+
+Replaces the permanent classroom geofence. Root causes addressed: (1) a classroom anchor saved once
+(sometimes from an imprecise or manual map position) was reused for every session, so a wrong anchor
+failed every student; now each session's reference point is the lecturer's own fresh GPS reading at
+QR generation, refused when less precise than the lecturer threshold; (2) a 14–20 m geofence was
+compared with the raw distance only, so uncertain readings were reported as "outside"; now the
+server applies distance ± reported accuracy (accept / outside / uncertain-retry) without ever
+widening the 20 m limit; (3) student-ID lookups could happen before any location check; location is
+now the first, server-enforced step. Details: [ATTENDANCE_WORKFLOW.md](documentation/ATTENDANCE_WORKFLOW.md#location-verification-lecturer-generated-qr-proximity).
+
+- Database: migration `session_reference_point` (renames in place — existing sessions keep their
+  data; adds `referenceCapturedAt`; settings `studentMaxAccuracyM`/`lecturerMaxAccuracyM`, default
+  20 m; fixed-radius setting dropped). Class/event venue coordinates are kept but no longer used.
+  Verified: the migrated test database has **no drift** from `schema.prisma` (`prisma migrate diff`).
+- Backend: new `modules/attendance/proximity.service.ts` (Haversine, coordinate/accuracy/freshness
+  validation, reference validation, session expiry, structured outcomes); `POST /attendance/sessions`
+  takes `reference` (raw reading); new audited `POST /attendance/sessions/:id/reference-location`;
+  `/public/attendance/:token/verify-location` returns the outcomes; `/verify-student` requires an
+  accepted location; `/submit` re-checks the signed location against the current reference point.
+  Removed: venue capture/map placement for classes and events, the venue audit hook.
+- Frontend: Generate QR captures the lecturer's location first (progress, latitude/longitude,
+  accuracy, poor readings refused, 20 m rule, map preview); live session page shows the reference
+  point and an audited "Update location" dialog; student page: location first with progress,
+  accepted / outside (red) / uncertain-retry (amber) states; settings show the fixed 20 m rule and
+  the lecturer and student accuracy thresholds.
+
+### Tests executed (2026-11-17)
+
+| Suite | Result |
+|---|---|
+| Backend unit (`tests/unit`, incl. proximity: 0/5/10/15/19/20/21/50 m exact and with accuracy, boundary, poor accuracy, stale, invalid, expired, reference validation) | 65 / 65 passed |
+| Backend proximity integration (`tests/attendance/proximity.test.ts`, real PostgreSQL test DB) | 28 / 28 passed (27 in the first run; the 28th passed after correcting its expected status 400 → 422) |
+| Backend attendance integration (`tests/attendance/attendance.test.ts`) | 19 / 20 passed across runs (after updating the masked-email assertion and adding token refresh); **"rejects duplicates and replays idempotently" not confirmed** — every attempt failed on a dropped database connection |
+| Tenant isolation, permissions, students/reports suites | **not completed** — the test database became unreachable (`P1001`, connection resets, pool timeouts) |
+| Frontend (Vitest, incl. 3 new student-page location tests) | 33 / 33 passed |
+| Type checks (backend `tsc`, frontend `tsc -b`), production build (`vite build`) | passed |
+| Playwright (`e2e/proximity.spec.ts`: lecturer poor/precise reading, student accepted / outside / uncertain→retry, audited location update, ended session) | **written, not run** — needs a reachable, seeded test database (see TESTING.md) |
+| Real smartphones in a classroom | **not done** |
+
 ## Website, accounts and layout (2026-11-16)
 
 - Public contact details (email, phone, address) are blank in `frontend/src/features/marketing/site.ts`
@@ -121,6 +163,16 @@ maximum student GPS uncertainty from 50 m to 25–30 m after testing in your cla
   Creating a lecturer now needs only `lecturers.manage` (it grants the system Lecturer role).
 
 ## Known issues / limitations
+
+- **Proximity verification is not validated on real smartphones.** Indoors, phone GPS is often
+  ±10–50 m; with the 20 m rule (accept only when distance + accuracy ≤ 20 m) many indoor readings
+  will be *uncertain* and need retries or a manual entry. The lecturer's own uncertainty (up to the
+  lecturer threshold) is not added to the student check. Browser GPS can be spoofed — this improves
+  proximity checking but does not guarantee physical presence. Lecturers must generate the QR on a
+  GPS-capable phone (laptop readings are refused).
+- After deploying: sessions active during the deploy keep their old anchor (migrated as the reference
+  point); classroom coordinates no longer matter. The integration suites listed above as not completed
+  and the Playwright specs must be run when the test database is reachable (or in CI).
 
 - **GPS accuracy is not yet proven in the field.** The new flow is covered by unit, component and API
   tests with simulated readings only. It must be tested with real phones (Android and iOS, several

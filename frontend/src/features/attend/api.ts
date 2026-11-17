@@ -24,11 +24,10 @@ export type ValidateResult = {
     lecturer: string | null;
     expiresAt: string;
     serverTime: string;
-    locationRequired: boolean;
+    /** Students must first be within `locationPolicy.maximumDistanceMeters` of the lecturer. */
+    locationVerificationEnabled: boolean;
     selfieRequired: boolean;
-    radiusM: number;
-    minAccuracyM: number;
-    /** The exact policy the server enforces (null when location is not required). */
+    /** The exact rule the server enforces (null when location is not required). Never includes the lecturer's coordinates. */
     locationPolicy: LocationPolicy | null;
   };
   studentIdFormat: StudentIdFormat;
@@ -56,9 +55,14 @@ export type SuccessResult = {
 
 export type Coords = { latitude: number; longitude: number; accuracy: number };
 export type LocationPolicy = {
-  radiusM: number; maxAccuracyM: number; maxLocationAgeSeconds: number; timeoutSeconds: number; sampleCount: number; maxAttempts: number; venueSource: 'GPS' | 'MAP' | null;
+  maximumDistanceMeters: number; maxAccuracyM: number; maxLocationAgeSeconds: number; timeoutSeconds: number; sampleCount: number; maxAttempts: number;
 };
-export type LocationCheck = { attemptToken: string; withinGeofence: boolean; distanceM: number | null; accuracyM: number | null; radiusM: number; maxAccuracyM: number };
+/** Server proximity outcomes (non-accepted ones arrive as API errors with these codes). */
+export type ProximityOutcome =
+  | 'LOCATION_ACCEPTED' | 'LOCATION_OUTSIDE_RADIUS' | 'LOCATION_UNCERTAIN' | 'LOCATION_ACQUISITION_FAILED' | 'LOCATION_STALE'
+  | 'LECTURER_REFERENCE_LOCATION_INVALID' | 'ATTENDANCE_SESSION_EXPIRED';
+export type ProximityDetails = { outcome?: ProximityOutcome; retryable?: boolean; reason?: string; distanceM?: number; accuracyM?: number; ageSeconds?: number; maximumDistanceMeters?: number };
+export type LocationCheck = { attemptToken: string; outcome: 'LOCATION_ACCEPTED'; accepted: true; distanceM: number; accuracyM: number; maximumDistanceMeters: number; message: string };
 
 const base = (token: string) => `/public/attendance/${encodeURIComponent(token)}`;
 const call = async <T>(p: Promise<{ data: ApiSuccess<T> }>) => {
@@ -80,7 +84,7 @@ export const attendApi = {
     fd.append('file', blob, 'selfie.jpg');
     return call<{ selfieId: string; previewUrl: string }>(http.post(`${base(token)}/upload-selfie`, fd, { headers: { 'X-Attempt-Token': attempt } }));
   },
-  submit: (token: string, attempt: string, idempotencyKey: string, body: Partial<Coords> & { selfieId?: string | null }) =>
+  submit: (token: string, attempt: string, idempotencyKey: string, body: { selfieId?: string | null }) =>
     call<SuccessResult>(http.post(`${base(token)}/submit`, body, { headers: { 'X-Attempt-Token': attempt, 'Idempotency-Key': idempotencyKey } })),
   confirmation: (reference: string, token: string) => call<SuccessResult>(http.get(`/public/attendance/confirmation/${encodeURIComponent(reference)}`, { params: { token } })),
 };

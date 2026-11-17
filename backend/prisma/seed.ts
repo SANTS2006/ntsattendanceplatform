@@ -63,7 +63,7 @@ if (!org) {
   const sem = await prisma.semester.create({ data: { organizationId: orgId, academicYearId: year.id, name: 'First Semester', startDate: new Date('2026-09-01'), endDate: new Date('2027-01-31'), isCurrent: true } });
   const course = await prisma.course.create({ data: { organizationId: orgId, code: 'CS201', title: 'Data Structures and Algorithms', departmentId: dept.id, programId: program.id, levelId: levels[1].id, credits: 3 } });
   const cls = await prisma.class.create({
-    data: { organizationId: orgId, name: 'Group A', code: 'CS201-A', courseId: course.id, academicYearId: year.id, semesterId: sem.id, room: 'Lecture Hall 2', defaultLatitude: 8.4844, defaultLongitude: -13.2344, venueLocationSource: 'MAP', venueCapturedAt: new Date() },
+    data: { organizationId: orgId, name: 'Group A', code: 'CS201-A', courseId: course.id, academicYearId: year.id, semesterId: sem.id, room: 'Lecture Hall 2' },
   });
   const lecturer = await prisma.lecturer.create({ data: { organizationId: orgId, membershipId: lecM.id, firstName: 'Lamin', lastName: 'Kamara', title: 'Dr.', email: emails.lecturer, departmentId: dept.id } });
   await prisma.classLecturer.create({ data: { organizationId: orgId, classId: cls.id, lecturerId: lecturer.id } });

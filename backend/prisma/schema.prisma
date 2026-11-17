@@ -298,10 +298,12 @@ model OrganizationSettings {
   studentIdExample       String?
 
   // Attendance defaults
+  /// Default for new sessions: students must be within 20 m of the lecturer's reference point.
   locationRequired          Boolean @default(true)
-  defaultGeofenceRadiusM    Int     @default(20)
-  minGpsAccuracyM           Int     @default(50) /// max GPS uncertainty (m) accepted from students
-  venueCaptureMaxAccuracyM  Int     @default(30) /// max GPS uncertainty (m) for registering a venue by GPS
+  /// Student readings less precise than this (m) are treated as uncertain (retry), never as "outside".
+  studentMaxAccuracyM       Int     @default(20)
+  /// The lecturer's reference reading must be at least this precise (m) or it is not saved.
+  lecturerMaxAccuracyM      Int     @default(20)
   maxLocationAgeSeconds     Int     @default(30) /// readings older than this are stale
   locationTimeoutSeconds    Int     @default(60) /// how long devices keep collecting readings
   locationSampleCount       Int     @default(5) /// readings collected before settling for the best one
@@ -354,20 +356,20 @@ model Permission {
 }
 
 model Role {
-  id             String           @id @default(uuid()) @db.Uuid
-  organizationId String           @db.Uuid
-  key            String
-  name           String
-  description    String?
-  isSystem       Boolean          @default(false)
+  id                    String           @id @default(uuid()) @db.Uuid
+  organizationId        String           @db.Uuid
+  key                   String
+  name                  String
+  description           String?
+  isSystem              Boolean          @default(false)
   /// Set when an owner/administrator edits a built-in role's permissions; startup sync then leaves it alone.
-  permissionsCustomized Boolean   @default(false)
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  permissions    RolePermission[]
-  memberships    MembershipRole[]
-  invitations    Invitation[]
+  permissionsCustomized Boolean          @default(false)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  organization          Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions           RolePermission[]
+  memberships           MembershipRole[]
+  invitations           Invitation[]
 
   @@unique([organizationId, key])
   @@unique([organizationId, id])
@@ -560,6 +562,8 @@ model Class {
   name                String
   code                String
   room                String?
+  /// Deprecated: classroom coordinates are no longer used for attendance (kept for history).
+  /// Deprecated: classroom coordinates are no longer used for attendance (kept for history).
   defaultLatitude     Float?
   defaultLongitude    Float?
   /// GPS = captured on a device and within the capture accuracy policy; MAP = placed manually on a map
@@ -735,41 +739,47 @@ model EventManager {
 // ───────────────────────────── Attendance ─────────────────────────────
 
 model AttendanceSession {
-  id                    String                   @id @default(uuid()) @db.Uuid
-  organizationId        String                   @db.Uuid
-  title                 String
-  classId               String?                  @db.Uuid
-  eventId               String?                  @db.Uuid
-  lecturerId            String?                  @db.Uuid
-  createdByUserId       String                   @db.Uuid
-  status                AttendanceSessionStatus  @default(ACTIVE)
-  startsAt              DateTime                 @default(now())
-  expiresAt             DateTime
-  closedAt              DateTime?
-  revokedAt             DateTime?
-  latitude              Float?
-  longitude             Float?
-  radiusM               Int
-  minAccuracyM          Int
-  locationSource        String? /// GPS | MAP — provenance of the anchor coordinates
-  locationAccuracyM     Float? /// reported uncertainty of the anchor when captured by GPS
-  maxLocationAgeSeconds Int                      @default(30)
-  locationRequired      Boolean
-  selfieRequired        Boolean
-  requireEnrollment     Boolean
-  lateAfter             DateTime?
-  allowLate             Boolean                  @default(true)
-  configSnapshot        Json
-  replacesSessionId     String?                  @db.Uuid
-  createdAt             DateTime                 @default(now())
-  updatedAt             DateTime                 @updatedAt
-  class                 Class?                   @relation(fields: [classId], references: [id], onDelete: Restrict)
-  event                 Event?                   @relation(fields: [eventId], references: [id], onDelete: Restrict)
-  lecturer              Lecturer?                @relation(fields: [lecturerId], references: [id], onDelete: Restrict)
-  qrTokens              QRToken[]
-  records               AttendanceRecord[]
-  selfies               AttendanceSelfie[]
-  verifications         AttendanceVerification[]
+  id                          String                   @id @default(uuid()) @db.Uuid
+  organizationId              String                   @db.Uuid
+  title                       String
+  classId                     String?                  @db.Uuid
+  eventId                     String?                  @db.Uuid
+  lecturerId                  String?                  @db.Uuid
+  createdByUserId             String                   @db.Uuid
+  status                      AttendanceSessionStatus  @default(ACTIVE)
+  startsAt                    DateTime                 @default(now())
+  expiresAt                   DateTime
+  closedAt                    DateTime?
+  revokedAt                   DateTime?
+  /// Lecturer's position when the QR code was generated — the session-specific reference point.
+  /// Fixed for the whole session; changed only by an explicit, audited action.
+  referenceLatitude           Float?
+  referenceLongitude          Float?
+  referenceAccuracyMeters     Float?
+  referenceCapturedAt         DateTime?
+  /// LECTURER_GPS (current) — GPS/MAP on sessions created before session reference points.
+  locationSource              String?
+  /// Students must be within this distance of the reference point (always 20 m for new sessions).
+  maximumDistanceMeters       Int
+  /// Student readings less precise than this are treated as uncertain (snapshot of the setting).
+  studentMaxAccuracyM         Int
+  maxLocationAgeSeconds       Int                      @default(30)
+  locationVerificationEnabled Boolean
+  selfieRequired              Boolean
+  requireEnrollment           Boolean
+  lateAfter                   DateTime?
+  allowLate                   Boolean                  @default(true)
+  configSnapshot              Json
+  replacesSessionId           String?                  @db.Uuid
+  createdAt                   DateTime                 @default(now())
+  updatedAt                   DateTime                 @updatedAt
+  class                       Class?                   @relation(fields: [classId], references: [id], onDelete: Restrict)
+  event                       Event?                   @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  lecturer                    Lecturer?                @relation(fields: [lecturerId], references: [id], onDelete: Restrict)
+  qrTokens                    QRToken[]
+  records                     AttendanceRecord[]
+  selfies                     AttendanceSelfie[]
+  verifications               AttendanceVerification[]
 
   @@unique([organizationId, id])
   @@index([organizationId, status, expiresAt])

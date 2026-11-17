@@ -38,13 +38,13 @@ describe('lecturer object-level permissions', () => {
 
   it('can run attendance for an assigned class but not an unassigned one', async () => {
     expect((await api(lecturer, 'post', '/attendance/sessions', { classId: T.cls.id, durationMinutes: 10 })).status).toBe(201);
-    const denied = await api(lecturer, 'post', '/attendance/sessions', { classId: otherClassId, durationMinutes: 10, locationRequired: false });
+    const denied = await api(lecturer, 'post', '/attendance/sessions', { classId: otherClassId, durationMinutes: 10, locationVerificationEnabled: false });
     expect(denied.status).toBe(403);
     expect(denied.body.code).toBe('NOT_ASSIGNED');
   });
 
   it('cannot manage sessions created by others for other classes', async () => {
-    const s = await startSession(T.owner, otherClassId, { locationRequired: false });
+    const s = await startSession(T.owner, otherClassId, { locationVerificationEnabled: false });
     expect((await api(lecturer, 'get', `/attendance/sessions/${s.session.id}`)).status).toBe(404);
     expect((await api(lecturer, 'post', `/attendance/sessions/${s.session.id}/close`)).status).toBe(404);
   });

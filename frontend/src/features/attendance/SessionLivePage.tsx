@@ -4,8 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { QRCodeSVG } from 'qrcode.react';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { Ban, Clock, Copy, Download, Maximize2, Minimize2, RefreshCw, Square, UserPlus, Users, Wifi, WifiOff } from 'lucide-react';
-import { errorMessage, get, getPaged, post } from '@/api/client';
+import { Ban, Clock, Copy, Crosshair, Download, Maximize2, Minimize2, RefreshCw, Square, UserPlus, Users, Wifi, WifiOff } from 'lucide-react';
+import { ApiError, errorMessage, get, getPaged, post } from '@/api/client';
 import { useAuth } from '@/auth/AuthProvider';
 import { Badge, Button, Card, ConfirmDialog, DataTable, EmptyState, ErrorState, Modal, PageHeader, Pagination, Select, Spinner, StatCard, Tabs, Textarea, BackButton } from '@/components/ui';
 import { usePaged } from '@/hooks/usePaged';
@@ -13,6 +13,8 @@ import { useSessionSocket } from '@/hooks/useSessionSocket';
 import type { AttendanceRecord, AttendanceSession, QrInfo } from '@/types';
 import { fmtDateTime } from '@/utils/format';
 import { RecordsTable } from './RecordsTable';
+import { ReferenceStatus, useReferenceCapture } from '@/components/location/ReferenceCapture';
+import { readingPayload } from '@/lib/geo';
 
 function useCountdown(target: string | undefined, offsetMs: number) {
   const [now, setNow] = useState(Date.now());
@@ -47,6 +49,7 @@ export function SessionLivePage() {
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [confirm, setConfirm] = useState<'close' | 'revoke' | 'replace' | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
+  const [refOpen, setRefOpen] = useState(false);
 
   const session = useQuery({ queryKey: ['session', id], queryFn: () => get<AttendanceSession>(`/attendance/sessions/${id}`), refetchInterval: 30_000 });
   const s = session.data;
@@ -209,10 +212,29 @@ export function SessionLivePage() {
           )}
           <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-4 text-xs text-slate-500">
             <div>Expires<dd className="font-medium text-slate-800">{fmtDateTime(s.expiresAt, org?.timezone)}</dd></div>
-            <div>Location<dd className="font-medium text-slate-800">{s.locationRequired ? `Within ${s.radiusM} m` : 'Not required'}</dd></div>
+            <div>Location<dd className="font-medium text-slate-800">{s.locationVerificationEnabled ? `Within ${s.maximumDistanceMeters} m of the lecturer` : 'Not required'}</dd></div>
             <div>Selfie<dd className="font-medium text-slate-800">{s.selfieRequired ? 'Required' : 'Optional'}</dd></div>
             <div>Enrollment<dd className="font-medium text-slate-800">{s.requireEnrollment ? 'Enrolled only' : 'Anyone in org'}</dd></div>
           </dl>
+          {s.locationVerificationEnabled && (
+            <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-600 dark:bg-white/5 dark:text-slate-300" data-testid="reference-summary">
+              <p className="font-semibold text-slate-800 dark:text-slate-100">Reference point (your location when the QR code was generated)</p>
+              {s.referenceLatitude != null && s.referenceLongitude != null ? (
+                <p className="mt-1">
+                  <span className="font-mono">{s.referenceLatitude.toFixed(6)}, {s.referenceLongitude.toFixed(6)}</span>
+                  {s.referenceAccuracyMeters != null && <> · ±{Math.round(s.referenceAccuracyMeters)} m</>}
+                  {s.referenceCapturedAt && <> · {fmtDateTime(s.referenceCapturedAt, org?.timezone)}</>}
+                </p>
+              ) : (
+                <p className="mt-1 text-rose-600">No valid reference point — students cannot be checked by location.</p>
+              )}
+              {s.canManage && active && (
+                <Button size="sm" variant="secondary" className="mt-2" icon={<Crosshair className="h-4 w-4" />} onClick={() => setRefOpen(true)}>
+                  Update location
+                </Button>
+              )}
+            </div>
+          )}
         </Card>
 
         <div className="min-w-0 space-y-4 sm:space-y-6">
@@ -296,6 +318,7 @@ export function SessionLivePage() {
         }
       />
       <ManualEntry open={manualOpen} onClose={() => setManualOpen(false)} sessionId={id} />
+      <UpdateReference open={refOpen} onClose={() => setRefOpen(false)} sessionId={id} />
     </div>
   );
 }
@@ -335,6 +358,53 @@ function ManualEntry({ open, onClose, sessionId }: { open: boolean; onClose: () 
         <Select label="Student" options={(absentees.data?.items ?? []).map((a) => ({ value: a.id, label: `${a.fullName} (${a.studentNumber})` }))} placeholder="Select your student" value={studentId} onChange={(e) => setStudentId(e.target.value)} />
         <Select label="Status" options={['PRESENT', 'LATE', 'EXCUSED'].map((s) => ({ value: s, label: s }))} value={status} onChange={(e) => setStatus(e.target.value)} />
         <Textarea label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} />
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Explicit, audited correction of the session's reference point (e.g. the QR code was generated in
+ * the corridor). The new reading must meet the same accuracy and freshness rules; students already
+ * accepted are re-checked against the new point when they submit.
+ */
+function UpdateReference({ open, onClose, sessionId }: { open: boolean; onClose: () => void; sessionId: string }) {
+  const qc = useQueryClient();
+  const ref = useReferenceCapture();
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const close = () => { ref.reset(); setReason(''); onClose(); };
+  const save = async () => {
+    setBusy(true);
+    try {
+      const reading = await ref.capture(); // captured just before sending so it is fresh
+      if (!reading) return;
+      await post(`/attendance/sessions/${sessionId}/reference-location`, { reference: readingPayload(reading), reason: reason.trim() });
+      toast.success('Reference location updated');
+      qc.invalidateQueries({ queryKey: ['session', sessionId] });
+      close();
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'LECTURER_REFERENCE_LOCATION_INVALID') ref.fail(e.message);
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      open={open}
+      onClose={close}
+      title="Update the session location"
+      size="lg"
+      footer={<><Button variant="secondary" onClick={close}>Cancel</Button><Button loading={busy} disabled={reason.trim().length < 5} onClick={save} icon={<Crosshair className="h-4 w-4" />}>Capture my location and save</Button></>}
+    >
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600">
+          Use this only if the QR code was generated away from where students are. Your current GPS position replaces the reference point,
+          the change is recorded in the audit log, and students who already confirmed their location are checked again against the new point.
+        </p>
+        <Textarea label="Reason *" placeholder="Enter why the location is changing (e.g. moved to Lab 3)" value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} />
+        <ReferenceStatus phase={ref.phase} maxAccuracyM={ref.policy.lecturerMaxAccuracyM} savedLabel="New location accepted." showMap={false} />
       </div>
     </Modal>
   );
