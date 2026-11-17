@@ -11,7 +11,7 @@ import { useAuth } from '@/auth/AuthProvider';
 import { Logo } from '@/components/brand';
 import { SidebarUserCard } from '@/components/UserCard';
 import { NotificationsMenu, ProfileMenu } from '@/components/HeaderMenus';
-import { ThemeToggle } from '@/theme/ThemeProvider';
+import { ThemeToggle, useTheme } from '@/theme/ThemeProvider';
 import { useSupportUnread } from '@/features/support/SupportPages';
 import { displayName } from '@/utils/format';
 
@@ -62,12 +62,13 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const memberOf = me?.organizations.filter((o) => !o.isOwner) ?? [];
   const isAdmin = !!org && (org.isOwner || can('organization.manage'));
   const supportUnread = useSupportUnread(isAdmin);
+  const dark = useTheme().resolved === 'dark';
   const groups = NAV.map((g) => ({ ...g, items: g.items.filter((n) => (n.ownerOrAdmin ? isAdmin : !n.any || n.any.some(can))) })).filter((g) => g.items.length);
   return (
-    <div className="bg-sidebar flex h-full flex-col text-white">
+    <div className="bg-sidebar flex h-full flex-col">
       <div className="flex h-[4.5rem] items-center px-5">
         <Link to="/app" onClick={onNavigate} aria-label="NTSAttend home">
-          <Logo light />
+          <Logo light={dark} />
         </Link>
       </div>
 
@@ -75,11 +76,11 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         <div className="px-4 pb-4">
           {me && me.organizations.length > 1 ? (
             <div className="relative">
-              <Building2 className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-cyan-200" />
+              <Building2 className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-(--sb-accent)" />
               <label className="sr-only" htmlFor="org-switch">Organization</label>
               <select
                 id="org-switch"
-                className="w-full appearance-none rounded-xl border border-white/10 bg-white/[0.07] py-2.5 pr-8 pl-9 text-xs font-semibold text-white outline-none focus:ring-2 focus:ring-cyan-400/40"
+                className="w-full appearance-none rounded-xl border border-(--sb-border) bg-(--sb-surface) py-2.5 pr-8 pl-9 text-xs font-semibold text-(--sb-text) outline-none focus:ring-2 focus:ring-cyan-400/40"
                 value={org.id}
                 onChange={(e) => {
                   if (e.target.value === '__new') { onNavigate?.(); nav('/onboarding'); return; }
@@ -98,18 +99,18 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 )}
                 <option value="__new" className="text-slate-900">+ Create your own organization…</option>
               </select>
-              <ChevronDown className="pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-white/50" />
+              <ChevronDown className="pointer-events-none absolute top-1/2 right-3 h-4 w-4 -translate-y-1/2 text-(--sb-text-3)" />
             </div>
           ) : (
-            <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2.5 text-xs font-semibold">
-              <Building2 className="h-4 w-4 shrink-0 text-cyan-200" />
+            <div className="flex items-center gap-2 rounded-xl border border-(--sb-border) bg-(--sb-surface) px-3 py-2.5 text-xs font-semibold">
+              <Building2 className="h-4 w-4 shrink-0 text-(--sb-accent)" />
               <span className="truncate">{org.name}</span>
             </div>
           )}
           {me && owned.length === 0 && (
             // Members (e.g. lecturers added by an institution) can open their own organization space
             // with the same account; it is separate from the organizations they work in.
-            <Link to="/onboarding" onClick={onNavigate} className="mt-2 flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-cyan-100/80 transition hover:bg-white/[0.06] hover:text-white">
+            <Link to="/onboarding" onClick={onNavigate} className="mt-2 flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-(--sb-accent) transition hover:bg-(--sb-hover) hover:text-(--sb-text)">
               <Plus className="h-3.5 w-3.5" /> Create your own organization
             </Link>
           )}
@@ -119,7 +120,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       <nav className="flex-1 space-y-5 scroll-dark overflow-y-auto px-3 pb-4" aria-label="Main">
         {groups.map((g) => (
           <div key={g.title}>
-            <p className="mb-1.5 px-3 text-[10px] font-bold tracking-[0.14em] text-white/40 uppercase">{g.title}</p>
+            <p className="mb-1.5 px-3 text-[10px] font-bold tracking-[0.14em] text-(--sb-text-3) uppercase">{g.title}</p>
             <div className="space-y-0.5">
               {g.items.map((n) => (
                 <NavLink
@@ -130,7 +131,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                   className={({ isActive }) =>
                     clsx(
                       'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all',
-                      isActive ? 'bg-white/[0.12] text-white shadow-[inset_0_0_0_1px_rgb(255_255_255/0.08)]' : 'text-white/65 hover:bg-white/[0.06] hover:text-white',
+                      isActive ? 'bg-(--sb-active) text-(--sb-active-text) shadow-[inset_0_0_0_1px_var(--sb-border)]' : 'text-(--sb-text-2) hover:bg-(--sb-hover) hover:text-(--sb-text)',
                     )
                   }
                 >
@@ -140,7 +141,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                       <span
                         className={clsx(
                           'flex h-8 w-8 items-center justify-center rounded-lg transition [&>svg]:h-[18px] [&>svg]:w-[18px]',
-                          isActive ? 'bg-gradient-to-br from-brand-500 to-cyan-brand text-white shadow-lg' : 'bg-white/[0.05] text-white/70 group-hover:text-white',
+                          isActive ? 'bg-gradient-to-br from-brand-500 to-cyan-brand text-white shadow-lg' : 'bg-(--sb-surface-2) text-(--sb-icon) group-hover:text-(--sb-text)',
                         )}
                       >
                         {n.icon}
@@ -157,7 +158,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </div>
         ))}
         {me?.platformRole && (
-          <NavLink to="/platform" onClick={onNavigate} className="mx-0 flex items-center gap-3 rounded-xl border border-violet-300/20 bg-violet-500/10 px-3 py-2.5 text-sm font-semibold text-violet-100 hover:bg-violet-500/20">
+          <NavLink to="/platform" onClick={onNavigate} className="mx-0 flex items-center gap-3 rounded-xl border border-violet-300/30 bg-(--sb-violet-bg) px-3 py-2.5 text-sm font-semibold text-(--sb-violet-text) hover:bg-violet-500/20">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/30"><Shield className="h-[18px] w-[18px]" /></span>
             Platform admin
           </NavLink>
@@ -193,7 +194,7 @@ export function AppLayout() {
       <div className={clsx('fixed inset-0 z-40 lg:hidden', mobileOpen ? 'pointer-events-auto' : 'pointer-events-none')} aria-hidden={!mobileOpen}>
         <div className={clsx('absolute inset-0 bg-navy-950/50 backdrop-blur-sm transition-opacity duration-300', mobileOpen ? 'opacity-100' : 'opacity-0')} onClick={() => setMobileOpen(false)} />
         <aside className={clsx('absolute inset-y-0 left-0 w-[17.5rem] max-w-[85vw] shadow-2xl transition-transform duration-300 ease-out', mobileOpen ? 'translate-x-0' : '-translate-x-full')}>
-          <button className="absolute top-5 right-3 z-10 rounded-lg p-1.5 text-white/70 hover:bg-white/10" onClick={() => setMobileOpen(false)} aria-label="Close menu">
+          <button className="absolute top-5 right-3 z-10 rounded-lg p-1.5 text-slate-500 hover:bg-slate-500/10 dark:text-white/70" onClick={() => setMobileOpen(false)} aria-label="Close menu">
             <X className="h-5 w-5" />
           </button>
           <Sidebar onNavigate={() => setMobileOpen(false)} />

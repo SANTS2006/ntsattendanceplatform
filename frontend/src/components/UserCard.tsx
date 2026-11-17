@@ -34,20 +34,20 @@ export function SidebarUserCard({ context = 'org', onNavigate }: { context?: 'or
   const { me, logout } = useAuth();
   const role = useRoleLabel(context);
   return (
-    <div className="m-3 rounded-2xl border border-white/10 bg-white/[0.06] p-3 backdrop-blur">
+    <div className="m-3 rounded-2xl border border-(--sb-border) bg-(--sb-surface) p-3 shadow-sm backdrop-blur dark:shadow-none">
       <div className="flex items-center gap-3">
         <Link to={context === 'platform' ? '/platform/account' : '/app/account'} onClick={onNavigate} className="shrink-0" aria-label="Account settings">
           <Avatar />
         </Link>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold text-white">
+          <p className="truncate text-sm font-bold text-(--sb-text)">
             {displayName(me?.user.firstName, me?.user.lastName)}
           </p>
-          <p className="truncate text-xs font-medium text-cyan-200/90">{role}</p>
+          <p className="truncate text-xs font-medium text-(--sb-accent)">{role}</p>
         </div>
         <button
           onClick={() => logout()}
-          className="rounded-xl p-2 text-white/60 transition hover:bg-rose-500/20 hover:text-rose-200"
+          className="rounded-xl p-2 text-(--sb-icon) transition hover:bg-rose-500/15 hover:text-rose-500 dark:hover:text-rose-200"
           aria-label="Sign out"
           title="Sign out"
         >

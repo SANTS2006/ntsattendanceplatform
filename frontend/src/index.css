@@ -123,11 +123,28 @@
     background: linear-gradient(135deg, var(--color-navy-950) 0%, var(--color-navy-800) 35%, var(--color-brand-700) 75%, var(--color-cyan-brand) 120%);
     background-size: 200% 200%;
   }
+  /* Sidebar: follows the theme through these tokens (light values here, dark ones below). */
   .bg-sidebar {
+    --sb-text: #0b1f4d;
+    --sb-text-2: #475569;
+    --sb-text-3: #94a3b8;
+    --sb-icon: #64748b;
+    --sb-accent: #2563eb;
+    --sb-surface: #ffffff;
+    --sb-surface-2: #eef2f9;
+    --sb-hover: #eef4ff;
+    --sb-active: #e3edff;
+    --sb-active-text: #1e40af;
+    --sb-border: #e2e8f0;
+    --sb-scroll: rgb(15 23 42 / 0.18);
+    --sb-violet-text: #6d28d9;
+    --sb-violet-bg: rgb(139 92 246 / 0.1);
+    color: var(--sb-text);
+    border-right: 1px solid var(--sb-border);
     background:
-      radial-gradient(24rem 18rem at 0% 0%, rgb(14 165 233 / 0.18), transparent 70%),
-      radial-gradient(20rem 16rem at 100% 100%, rgb(37 99 235 / 0.25), transparent 70%),
-      linear-gradient(180deg, var(--color-navy-900), var(--color-navy-950));
+      radial-gradient(24rem 18rem at 0% 0%, rgb(14 165 233 / 0.07), transparent 70%),
+      radial-gradient(20rem 16rem at 100% 100%, rgb(37 99 235 / 0.06), transparent 70%),
+      linear-gradient(180deg, #f8fbff, #f1f5fc);
   }
   .text-gradient {
     background: linear-gradient(90deg, var(--color-brand-600), var(--color-cyan-brand));
@@ -164,15 +181,12 @@
     background-size: 800px 100%;
     @apply animate-shimmer rounded-lg;
   }
-  /* Subtle scrollbar for dark panels (sidebar) */
+  /* Subtle scrollbar for the sidebar (colour follows the sidebar tokens) */
   .scroll-dark {
-    scrollbar-color: rgb(255 255 255 / 0.18) transparent;
+    scrollbar-color: var(--sb-scroll, rgb(255 255 255 / 0.18)) transparent;
   }
   .scroll-dark::-webkit-scrollbar-thumb {
-    background: rgb(255 255 255 / 0.16) padding-box;
-  }
-  .scroll-dark::-webkit-scrollbar-thumb:hover {
-    background: rgb(255 255 255 / 0.3) padding-box;
+    background: var(--sb-scroll, rgb(255 255 255 / 0.16)) padding-box;
   }
   .no-scrollbar {
     scrollbar-width: none;
@@ -196,7 +210,7 @@
    Dark mode (class "dark" on <html>, set by ThemeProvider / inline script).
    Strategy: invert the neutral slate scale so text/border/background utilities
    adapt automatically, then remap white surfaces, navy headings and pale tints.
-   Brand gradients, the sidebar and the logo are intentionally unchanged.
+   Brand gradients and the logo are unchanged; the sidebar switches to its navy look.
    ───────────────────────────────────────────────────────────────────────── */
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -218,6 +232,27 @@
 }
 .dark body {
   background-color: #070d1a;
+}
+.dark .bg-sidebar {
+  --sb-text: #ffffff;
+  --sb-text-2: rgb(255 255 255 / 0.65);
+  --sb-text-3: rgb(255 255 255 / 0.4);
+  --sb-icon: rgb(255 255 255 / 0.7);
+  --sb-accent: #a5f3fc;
+  --sb-surface: rgb(255 255 255 / 0.06);
+  --sb-surface-2: rgb(255 255 255 / 0.05);
+  --sb-hover: rgb(255 255 255 / 0.06);
+  --sb-active: rgb(255 255 255 / 0.12);
+  --sb-active-text: #ffffff;
+  --sb-border: rgb(255 255 255 / 0.1);
+  --sb-scroll: rgb(255 255 255 / 0.18);
+  --sb-violet-text: #ede9fe;
+  --sb-violet-bg: rgb(139 92 246 / 0.1);
+  border-right-color: transparent;
+  background:
+    radial-gradient(24rem 18rem at 0% 0%, rgb(14 165 233 / 0.18), transparent 70%),
+    radial-gradient(20rem 16rem at 100% 100%, rgb(37 99 235 / 0.25), transparent 70%),
+    linear-gradient(180deg, var(--color-navy-900), var(--color-navy-950));
 }
 .dark .bg-app {
   background-color: #070d1a;
