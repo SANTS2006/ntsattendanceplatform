@@ -47,7 +47,7 @@ const studentIds = await prisma.student.findMany({ where: { organizationId: org.
 await prisma.enrollment.createMany({ data: studentIds.map((s) => ({ organizationId: org.id, classId: cls.id, studentId: s.id })) });
 const session = await prisma.attendanceSession.create({
   data: { organizationId: org.id, title: 'Bench', classId: cls.id, createdByUserId: owner.id, expiresAt: new Date(Date.now() + 3600_000),
-    referenceLatitude: 8.4844, referenceLongitude: -13.2344, referenceAccuracyMeters: 5, referenceCapturedAt: new Date(), locationSource: 'LECTURER_GPS',
+    referenceLatitude: 8.4844, referenceLongitude: -13.2344, referenceAccuracyMeters: 5, referenceCapturedAt: new Date(), locationSource: 'LECTURER_DEVICE',
     maximumDistanceMeters: 20, studentMaxAccuracyM: 20, locationVerificationEnabled: true, selfieRequired: false, requireEnrollment: true, configSnapshot: {} },
 });
 const raw = crypto.randomBytes(32).toString('base64url');
@@ -70,8 +70,8 @@ async function json(res: Response) {
   return body.data!;
 }
 
-/** A fresh reading ~5.6 m from the lecturer with ±8 m accuracy (accepted: 5.6 + 8 ≤ 20). */
-const reading = () => JSON.stringify({ latitude: 8.48445, longitude: -13.2344, accuracy: 8, timestamp: Date.now() - 500, clientTime: Date.now() });
+/** A location about 5.6 m from the lecturer (accepted). */
+const reading = () => JSON.stringify({ latitude: 8.48445, longitude: -13.2344, accuracy: 8 });
 const located = async (attempt: unknown) =>
   fetch(`${base}/verify-location`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-attempt-token': String(attempt) }, body: reading() }).then(json);
 

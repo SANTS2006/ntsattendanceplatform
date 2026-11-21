@@ -1,4 +1,4 @@
-import { readingPayload, type Reading } from '@/lib/geo';
+import type { Point } from '@/lib/geo';
 import { http, toApiError, type ApiSuccess } from '@/api/client';
 
 /** Anonymous student attendance API (no account; chained by a short-lived attempt token). */
@@ -24,11 +24,10 @@ export type ValidateResult = {
     lecturer: string | null;
     expiresAt: string;
     serverTime: string;
-    /** Students must first be within `locationPolicy.maximumDistanceMeters` of the lecturer. */
+    /** Students must first be within `maximumDistanceMeters` of the lecturer. */
     locationVerificationEnabled: boolean;
     selfieRequired: boolean;
-    /** The exact rule the server enforces (null when location is not required). Never includes the lecturer's coordinates. */
-    locationPolicy: LocationPolicy | null;
+    maximumDistanceMeters: number;
   };
   studentIdFormat: StudentIdFormat;
 };
@@ -53,16 +52,7 @@ export type SuccessResult = {
   idempotentReplay?: boolean;
 };
 
-export type Coords = { latitude: number; longitude: number; accuracy: number };
-export type LocationPolicy = {
-  maximumDistanceMeters: number; maxAccuracyM: number; maxLocationAgeSeconds: number; timeoutSeconds: number; sampleCount: number; maxAttempts: number;
-};
-/** Server proximity outcomes (non-accepted ones arrive as API errors with these codes). */
-export type ProximityOutcome =
-  | 'LOCATION_ACCEPTED' | 'LOCATION_OUTSIDE_RADIUS' | 'LOCATION_UNCERTAIN' | 'LOCATION_ACQUISITION_FAILED' | 'LOCATION_STALE'
-  | 'LECTURER_REFERENCE_LOCATION_INVALID' | 'ATTENDANCE_SESSION_EXPIRED';
-export type ProximityDetails = { outcome?: ProximityOutcome; retryable?: boolean; reason?: string; distanceM?: number; accuracyM?: number; ageSeconds?: number; maximumDistanceMeters?: number };
-export type LocationCheck = { attemptToken: string; outcome: 'LOCATION_ACCEPTED'; accepted: true; distanceM: number; accuracyM: number; maximumDistanceMeters: number; message: string };
+export type LocationCheck = { attemptToken: string; accepted: true; distanceM: number; maximumDistanceMeters: number };
 
 const base = (token: string) => `/public/attendance/${encodeURIComponent(token)}`;
 const call = async <T>(p: Promise<{ data: ApiSuccess<T> }>) => {
@@ -77,8 +67,8 @@ export const attendApi = {
   validate: (token: string) => call<ValidateResult>(http.post(`${base(token)}/validate`)),
   verifyStudent: (token: string, attempt: string, studentId: string) =>
     call<{ attemptToken: string; student: VerifiedStudent }>(http.post(`${base(token)}/verify-student`, { studentId }, { headers: { 'X-Attempt-Token': attempt } })),
-  verifyLocation: (token: string, attempt: string, reading: Reading) =>
-    call<LocationCheck>(http.post(`${base(token)}/verify-location`, readingPayload(reading), { headers: { 'X-Attempt-Token': attempt } })),
+  verifyLocation: (token: string, attempt: string, point: Point) =>
+    call<LocationCheck>(http.post(`${base(token)}/verify-location`, point, { headers: { 'X-Attempt-Token': attempt } })),
   uploadSelfie: (token: string, attempt: string, blob: Blob) => {
     const fd = new FormData();
     fd.append('file', blob, 'selfie.jpg');

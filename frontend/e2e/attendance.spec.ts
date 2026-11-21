@@ -64,7 +64,7 @@ test('register → 6-character email code → account created → onboard a new 
   await expect(page.getByText('Student ID format')).toBeVisible();
 });
 
-// Lecturer QR generation and student check-in (proximity verification): see proximity.spec.ts.
+// Lecturer QR generation and student check-in (location check): see location.spec.ts.
 
 test('invalid QR codes show an error screen', async ({ page }) => {
   await page.goto(`/attend/${'x'.repeat(43)}`);

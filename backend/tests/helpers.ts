@@ -70,7 +70,7 @@ export async function seedTenant(name = 'Alpha University') {
   const owner = await registerUser();
   const org = await createOrg(owner, name);
   await api(owner, 'patch', '/organizations/settings', {
-    studentIdExactLength: 8, studentIdCharset: 'NUMERIC', locationRequired: true, selfieRequired: false, studentMaxAccuracyM: 20, lecturerMaxAccuracyM: 20,
+    studentIdExactLength: 8, studentIdCharset: 'NUMERIC', locationRequired: true, selfieRequired: false,
   });
   const dept = (await api(owner, 'post', '/departments', { name: 'Computer Science', code: 'CS' })).body.data;
   const program = (await api(owner, 'post', '/programs', { name: 'BSc Computer Science', code: 'BSCCS', departmentId: dept.id })).body.data;
@@ -91,18 +91,23 @@ export async function seedTenant(name = 'Alpha University') {
   return { owner, org, dept, program, level, course, cls, students };
 }
 
-/** Where the lecturer stands when generating the QR code (the session reference point). */
+/** Where the lecturer is when sharing their location after creating the session. */
 export const CLASS_LOCATION = { latitude: 8.4844, longitude: -13.2344 };
-/** Point `m` metres due north of the reference (0.0001° latitude ≈ 11.1 m). */
+/** Point `m` metres due north of the lecturer (0.0001° latitude ≈ 11.1 m). */
 export const north = (m: number) => ({ latitude: CLASS_LOCATION.latitude + m / 111_195, longitude: CLASS_LOCATION.longitude });
-/** A fresh browser reading `m` metres from the lecturer with the given accuracy. */
-export const reading = (m: number, accuracy: number, ageMs = 1_000) => ({ ...north(m), accuracy, timestamp: Date.now() - ageMs, clientTime: Date.now() });
-export const lecturerReading = (accuracy = 5, ageMs = 1_000) => reading(0, accuracy, ageMs);
+/** A device location `m` metres from the lecturer with the given reported accuracy. */
+export const reading = (m: number, accuracy: number) => ({ ...north(m), accuracy });
 
-export async function startSession(owner: Session, classId: string, extra: Record<string, unknown> = {}) {
-  const res = await api(owner, 'post', '/attendance/sessions', { classId, durationMinutes: 15, reference: lecturerReading(), ...extra });
+/** Creates a session and, like the session page does, then saves the lecturer's location. */
+export async function startSession(owner: Session, classId: string, { shareLocation = true, ...extra }: Record<string, unknown> = {}) {
+  const res = await api(owner, 'post', '/attendance/sessions', { classId, durationMinutes: 15, ...extra });
   if (res.status !== 201) throw new Error(`session failed: ${res.status} ${JSON.stringify(res.body)}`);
-  return res.body.data as { session: { id: string }; qr: { token: string; url: string } };
+  const data = res.body.data as { session: { id: string; locationVerificationEnabled: boolean }; qr: { token: string; url: string } };
+  if (shareLocation && data.session.locationVerificationEnabled) {
+    const saved = await api(owner, 'post', `/attendance/sessions/${data.session.id}/location`, { ...CLASS_LOCATION, accuracy: 5 });
+    if (saved.status !== 200) throw new Error(`location failed: ${saved.status} ${JSON.stringify(saved.body)}`);
+  }
+  return data;
 }
 
 /** validate → (location, when the session requires it) → student ID. */

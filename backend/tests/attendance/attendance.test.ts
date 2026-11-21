@@ -125,7 +125,7 @@ describe('student verification', () => {
   });
 });
 
-describe('location verification (details in proximity.test.ts)', () => {
+describe('location verification (details in location.test.ts)', () => {
   const verify = async (token: string, attempt: string, body: object) =>
     request(await getApp()).post(`${base}/${token}/verify-location`).set('X-Attempt-Token', attempt).send(body);
 
@@ -142,7 +142,7 @@ describe('location verification (details in proximity.test.ts)', () => {
     const v = await request(await getApp()).post(`${base}/${s.qr.token}/validate`);
     const res = await verify(s.qr.token, v.body.data.attemptToken, { ...reading(50, 5), distanceM: 0, withinGeofence: true, accepted: true });
     expect(res.status).toBe(403);
-    expect(res.body.code).toBe('LOCATION_OUTSIDE_RADIUS');
+    expect(res.body.code).toBe('NOT_IN_CLASS');
     expect(res.body.errors.distanceM).toBe(50);
   });
 });

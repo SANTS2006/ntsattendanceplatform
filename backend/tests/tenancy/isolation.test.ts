@@ -71,9 +71,9 @@ describe('API-level tenant isolation', () => {
   });
 
   it('A settings changes never affect B', async () => {
-    expect((await api(A.owner, 'patch', '/organizations/settings', { studentMaxAccuracyM: 99 })).status).toBe(200);
-    expect((await api(A.owner, 'get', '/organizations/settings')).body.data.studentMaxAccuracyM).toBe(99);
-    expect((await api(B.owner, 'get', '/organizations/settings')).body.data.studentMaxAccuracyM).toBe(20);
+    expect((await api(A.owner, 'patch', '/organizations/settings', { defaultQrExpiryMin: 77 })).status).toBe(200);
+    expect((await api(A.owner, 'get', '/organizations/settings')).body.data.defaultQrExpiryMin).toBe(77);
+    expect((await api(B.owner, 'get', '/organizations/settings')).body.data.defaultQrExpiryMin).not.toBe(77);
   });
 
   it('A cannot create rows that reference B rows (enroll B student into A class)', async () => {

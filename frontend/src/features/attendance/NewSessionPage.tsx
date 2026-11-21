@@ -3,12 +3,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { QrCode, RotateCw } from 'lucide-react';
-import { ApiError, errorMessage, get, post } from '@/api/client';
+import { QrCode } from 'lucide-react';
+import { errorMessage, get, post } from '@/api/client';
 import { Button, Card, Input, PageHeader, Select, Tabs, Toggle, BackButton } from '@/components/ui';
 import { useOptions } from '@/hooks/useOptions';
-import { MAXIMUM_DISTANCE_METERS, ReferenceStatus, useReferenceCapture } from '@/components/location/ReferenceCapture';
-import { readingPayload } from '@/lib/geo';
 import type { ClassItem, EventItem, OrgSettings } from '@/types';
 
 const DURATIONS = [5, 10, 15, 30, 60];
@@ -41,9 +39,6 @@ export function NewSessionPage() {
   const [errors, setErrors] = useState<Errors>({});
   const [submitted, setSubmitted] = useState(false);
 
-  /** The lecturer's own position, captured when "Generate QR code" is pressed (the session reference point). */
-  const ref = useReferenceCapture();
-
   useEffect(() => {
     const s = settings.data;
     if (!s) return;
@@ -74,24 +69,12 @@ export function NewSessionPage() {
     if (Object.keys(e).length) return toast.error(Object.values(e)[0]!);
     const minutes = customDuration ? Number(customDuration) : duration;
     setBusy(true);
-    // 1) Lecturer's current position — required before any QR code exists. A poor reading is not saved.
-    let reference: ReturnType<typeof readingPayload> | null = null;
-    if (locationRequired) {
-      const reading = await ref.capture();
-      if (!reading) {
-        setBusy(false);
-        return;
-      }
-      reference = readingPayload(reading);
-    }
     try {
       const r = await post<{ session: { id: string }; qr: unknown }>('/attendance/sessions', {
         classId: target === 'class' ? classId : null,
         eventId: target === 'event' ? eventId : null,
         title: title.trim() || undefined,
         durationMinutes: minutes,
-        // 2) The raw reading; the server re-checks coordinates, accuracy and freshness before saving it.
-        reference,
         locationVerificationEnabled: locationRequired,
         selfieRequired,
         requireEnrollment,
@@ -102,7 +85,6 @@ export function NewSessionPage() {
       toast.success('Session started');
       nav(`/app/attendance/${r.session.id}`);
     } catch (err) {
-      if (err instanceof ApiError && err.code === 'LECTURER_REFERENCE_LOCATION_INVALID') ref.fail(err.message);
       toast.error(errorMessage(err));
     } finally {
       setBusy(false);
@@ -167,16 +149,12 @@ export function NewSessionPage() {
         <div className="min-w-0 space-y-6">
         <Card title="Location verification">
           <Toggle
-            label={`Students must be within ${MAXIMUM_DISTANCE_METERS} m of you`}
-            description="Your phone's GPS position when you generate the QR code becomes this session's reference point. The server checks each student's distance from it."
+            label="Students must be within 20 m of you"
+            description="After the QR code is generated, your browser asks for your location. Each student's location is compared with yours, and students more than 20 m away cannot record attendance."
             checked={locationRequired}
-            onChange={(v) => { setLocationRequired(v); ref.reset(); }}
+            onChange={setLocationRequired}
           />
-          {locationRequired ? (
-            <div className="mt-3">
-              <ReferenceStatus phase={ref.phase} maxAccuracyM={ref.policy.lecturerMaxAccuracyM} />
-            </div>
-          ) : (
+          {!locationRequired && (
             <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
               Without location verification, anyone with the QR code (or a photo of it) can check in from anywhere.
             </p>
@@ -195,9 +173,9 @@ export function NewSessionPage() {
             className="w-full sm:w-auto"
             loading={busy}
             onClick={submit}
-            icon={ref.phase.kind === 'POOR_ACCURACY' || ref.phase.kind === 'ERROR' ? <RotateCw className="h-5 w-5" /> : <QrCode className="h-5 w-5" />}
+            icon={<QrCode className="h-5 w-5" />}
           >
-            {ref.phase.kind === 'ACQUIRING' ? 'Getting your location…' : ref.phase.kind === 'POOR_ACCURACY' || ref.phase.kind === 'ERROR' ? 'Try again: capture location and generate QR' : 'Generate QR code'}
+            Generate QR code
           </Button>
         </div>
       </div>

@@ -37,81 +37,24 @@ Error screens: invalid, expired or revoked QR; ended session; session without a 
 point; student not found; not enrolled; location denied, outside 20 m, uncertain or stale (retry);
 camera denied or missing; upload failure; already recorded; too many attempts; network errors.
 
-## Location verification (lecturer-generated QR proximity)
+## Location verification
 
-There is **no permanent classroom geofence**. Each session's reference point is the lecturer's own
-GPS position when the QR code is generated; it stays fixed for the session (QR rotation and student
-scans never move it) and can only be changed by the audited *Update location* action. Classroom
-coordinates saved before this change are kept in the database for history but are not used.
+1. The lecturer creates the session from any device. The session and QR code are created first.
+2. The session page then asks for the lecturer's location and saves it
+   (`POST /attendance/sessions/:id/location`, audited). The lecturer can share it again if they move.
+3. A student scans the QR code and the page asks for their location.
+4. The server compares the two with the Haversine formula:
+   - **20 m apart or less:** the student is in class and continues to the student ID step.
+   - **More than 20 m apart:** `NOT_IN_CLASS`; the student sees the error and cannot record attendance.
+5. At submit, the accepted location is compared again with the lecturer's current location.
 
-Browser geolocation is untrusted input. Devices only collect readings; every decision is made by the
-server (`backend/src/modules/attendance/proximity.service.ts`).
+Other outcomes: `LECTURER_LOCATION_MISSING` (the lecturer has not shared a location yet) and
+`LOCATION_INVALID` (unusable coordinates). The device's reported accuracy is stored for staff but
+does not affect the decision. The lecturer's coordinates are never sent to students.
 
-### The 20-metre rule
-
-`MAXIMUM_DISTANCE_METERS = 20` (fixed; saved on each session as `maximumDistanceMeters`).
-`distance = haversine(referenceLatitude, referenceLongitude, studentLatitude, studentLongitude)`;
-`accuracy` is the student device's reported uncertainty. Distances are compared at 1 cm resolution.
-
-| Condition (server order) | Outcome | HTTP | Student sees |
-|---|---|---|---|
-| Session closed, revoked or past `expiresAt` (server clock) | `ATTENDANCE_SESSION_EXPIRED` | 410 | "Attendance session ended" |
-| Session has no valid reference point | `LECTURER_REFERENCE_LOCATION_INVALID` | 409 | "Session location not set" |
-| Reading missing, coordinates out of range, accuracy missing or negative | `LOCATION_ACQUISITION_FAILED` | 422 | Retry guidance |
-| `clientTime − Position.timestamp` > max reading age, or no timestamp | `LOCATION_STALE` | 422 | Retry with a fresh reading |
-| `distance − accuracy > 20` | `LOCATION_OUTSIDE_RADIUS` | 403 | "About N m from your lecturer … outside the 20 m distance" |
-| `accuracy >` student threshold | `LOCATION_UNCERTAIN` (`POOR_ACCURACY`) | 422 | "Only accurate to about ±N m … try again" — never "outside" |
-| `distance + accuracy ≤ 20` | `LOCATION_ACCEPTED` | 200 | "Location accepted" (continue to ID and selfie) |
-| otherwise (the uncertainty circle straddles 20 m) | `LOCATION_UNCERTAIN` (`BOUNDARY`) | 422 | "Could not confirm … stand still and try again" |
-
-Errors carry `outcome`, `retryable`, `reason`, `distanceM`, `accuracyM`, `ageSeconds` and
-`maximumDistanceMeters`. The lecturer's coordinates are never sent to students. The 20 m limit is
-never widened to compensate for poor accuracy; a reading less precise than ±20 m can never be accepted.
-
-The lecturer's own reading is checked separately before it can become a reference point (valid
-coordinates, not (0, 0), accuracy present and within the lecturer threshold, fresh). Otherwise the
-API answers `LECTURER_REFERENCE_LOCATION_INVALID` (422, `reason` `POOR_ACCURACY`, `READING_TOO_OLD`,
-`INVALID_COORDINATES`, …) and nothing is saved. The lecturer's own uncertainty is not added to the
-student check: a reference point captured at ±20 m can itself be up to about 20 m from the
-lecturer's true position.
-
-### Policy (Settings → Attendance & location; snapshotted on each session)
-
-| Setting | Default | Range | Purpose |
-|---|---|---|---|
-| Verify students' location by default | on | — | Default for new sessions (`locationVerificationEnabled`). |
-| Lecturer GPS accuracy required | 20 m | 5–50 m | The reference reading must be at least this precise. |
-| Student GPS accuracy required | 20 m | 5–100 m | Less precise readings are `LOCATION_UNCERTAIN` (retry). Values above 20 m only change the guidance. |
-| Max reading age | 30 s | 5–300 s | Cached or stale readings are refused (lecturer and student). |
-| Acquisition timeout | 60 s | 10–180 s | How long devices keep collecting readings. |
-| Readings collected | 5 | 1–20 | Devices keep the single most precise fresh reading — never an average. |
-| Max failed location checks | 5 | 1–100 | Per device, per session, within 15 minutes; uncertain readings get 3× this. Then `LOCATION_ATTEMPTS_EXCEEDED` (429) and a security event. |
-
-### Attempt chain, submit and replay protection
-
-1. `/validate` → signed attempt token bound to the QR token, session and tenant.
-2. `/verify-location` → on acceptance the accepted reading is signed into the attempt token (valid
-   15 minutes). Tokens from another QR code, session or tenant are refused (`ATTEMPT_MISMATCH`).
-3. `/verify-student` → only with an accepted location (`LOCATION_NOT_VERIFIED` otherwise).
-4. `/submit` (Idempotency-Key) → inside one transaction: session still open; the signed location is
-   **re-evaluated against the session's current reference point** (so a corrected reference applies
-   to everyone); student eligible; selfie owned; late rules. The unique (session, student)
-   constraint makes concurrent duplicates impossible; the same key replays the original success.
-   Client-supplied distances, coordinates or "inside" flags are ignored.
-
-### Device requirements and limits
-
-- HTTPS is required (Render provides it); `Permissions-Policy: geolocation=(self)` allows only this origin.
-- Phones need Location on and **Precise location** allowed for the browser (Android: Location →
-  Google Location Accuracy; iOS: Settings → Privacy → Location Services → Safari Websites → Precise).
-- The lecturer should generate the QR code **on a phone**, standing where the students are. Laptops and
-  desktops usually have no GPS and report Wi-Fi/IP positions of ±100 m to ±20 km, which are refused.
-  A projector can then show the same session with *Present full screen*.
-- Indoors, phone GPS is often ±10–50 m and can drift; with a 20 m limit many indoor readings will be
-  *uncertain* and need a retry (or a manual entry by the lecturer). Floors of a building cannot be
-  distinguished.
-- **GPS coordinates from a browser can be spoofed.** This approach improves proximity checking; it does
-  not guarantee physical presence. It has not yet been validated on real smartphones in classrooms.
+**Limitation:** browser location can be spoofed, and computers and indoor phones can be tens of
+metres (computers sometimes kilometres) off. A wrong lecturer reading affects every student in that
+session; the lecturer can share again from a phone, and staff can use manual entry.
 
 ## Data recorded per check-in
 

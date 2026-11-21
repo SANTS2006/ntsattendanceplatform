@@ -58,9 +58,8 @@ export default function () {
   if (!check(v, { 'validate 200': (r) => r.status === 200 })) return failed.add(1);
   let attempt = v.json('data.attemptToken');
 
-  // Location first: ~3.3 m from the lecturer's reference point (LAT/LNG) with ±8 m → accepted.
-  const now = Date.now();
-  const reading = { latitude: LAT + 0.00003, longitude: LNG, accuracy: 8, timestamp: now - 500, clientTime: now };
+  // Location first: about 3.3 m from the lecturer (LAT/LNG) → accepted.
+  const reading = { latitude: LAT + 0.00003, longitude: LNG, accuracy: 8 };
   const loc = http.post(`${BASE}/public/attendance/${TOKEN}/verify-location`, JSON.stringify(reading), {
     headers: { ...json.headers, 'X-Attempt-Token': attempt }, tags: { step: 'location' },
   });

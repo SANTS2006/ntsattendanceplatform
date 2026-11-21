@@ -82,13 +82,6 @@ export type OrgSettings = {
   studentIdExample: string | null;
   /** Default for new sessions: students must be within 20 m of the lecturer's reference point. */
   locationRequired: boolean;
-  /** Student readings less precise than this (m) are "uncertain" and the student retries. */
-  studentMaxAccuracyM: number;
-  /** The lecturer's reference reading must be at least this precise (m). */
-  lecturerMaxAccuracyM: number;
-  maxLocationAgeSeconds: number;
-  locationTimeoutSeconds: number;
-  locationSampleCount: number;
   selfieRequired: boolean;
   requireEnrollment: boolean;
   defaultSessionDurationMin: number;
@@ -96,7 +89,6 @@ export type OrgSettings = {
   lateAfterMin: number | null;
   allowLateAttendance: boolean;
   imageRetentionDays: number;
-  maxFailedLocationAttempts: number;
 };
 
 export type Ref = { id: string; name: string };
@@ -179,7 +171,6 @@ export type AttendanceSession = {
   referenceCapturedAt: string | null;
   locationSource: string | null;
   maximumDistanceMeters: number;
-  studentMaxAccuracyM: number;
   locationVerificationEnabled: boolean;
   selfieRequired: boolean;
   requireEnrollment: boolean;

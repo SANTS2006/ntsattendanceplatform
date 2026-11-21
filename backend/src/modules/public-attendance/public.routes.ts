@@ -45,19 +45,16 @@ r(
   async (req, res) => ok(res, await svc.verifyStudent(req.valid.params.token, attempt(req.headers['x-attempt-token']), req.valid.body.studentId, req), { message: 'Student verified' }),
 );
 
-/** Raw device reading; validity, freshness and distance are judged by the proximity service. */
+/** The student's device location; the server compares it with the lecturer's. */
 const coords = z.object({
   latitude: z.number().finite().nullable().optional(),
   longitude: z.number().finite().nullable().optional(),
   accuracy: z.number().finite().nullable().optional(),
-  /** Position.timestamp (ms) and the device clock when sending — used to reject stale/cached readings. */
-  timestamp: z.number().finite().nullable().optional(),
-  clientTime: z.number().finite().nullable().optional(),
 });
 
 r(
   {
-    method: 'post', path: '/:token/verify-location', summary: "Server-side proximity check: within 20 m of the lecturer's reference point (first step when location is required)", tags: T, access: 'public',
+    method: 'post', path: '/:token/verify-location', summary: "Compare the student's location with the lecturer's: within 20 m continues, further is refused (first step when location is required)", tags: T, access: 'public',
     middleware: [limits.publicLocation()], params: tokenParam, body: coords,
   },
   async (req, res) => ok(res, await svc.verifyLocation(req.valid.params.token, attempt(req.headers['x-attempt-token']), req.valid.body, req)),

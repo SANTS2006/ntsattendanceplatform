@@ -64,7 +64,7 @@ client plays the role of the repository layer: every tenant-owned query goes thr
 5. **All files on Cloudinary as private (`authenticated`) assets** — selfies, logos, profile pictures, imports and reports — reached only through short-lived signed URLs. Database backups go to Cloudflare R2.
 6. **Redis optional in development**: jobs run in-process, rate limits in memory. Production
    requires Redis (validated at startup).
-7. **Server clock and server math only**: QR expiry, attendance timestamps and the distance to the lecturer's reference point are
+7. **Server clock and server math only**: QR expiry, attendance timestamps and the distance to the lecturer's location are
    computed server-side.
 
 ## Scalability plan

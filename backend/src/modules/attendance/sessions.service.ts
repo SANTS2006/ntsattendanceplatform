@@ -5,13 +5,13 @@ import { emitToSession } from '../../infra/realtime.js';
 import { imageStorage } from '../../infra/storage.js';
 import { randomToken, sha256 } from '../../lib/crypto.js';
 import { haversineMeters } from '../../lib/geo.js';
-import { badRequest, conflict, notFound, AppError } from '../../lib/errors.js';
+import { badRequest, conflict, notFound, unprocessable } from '../../lib/errors.js';
 import { dateInZone, timeInZone } from '../../lib/time.js';
 import type { TenantContext } from '../../middleware/context.js';
 import { audit } from '../audit/audit.service.js';
 import { settingsFor } from '../organizations/settings.js';
 import { assertCanManageTarget, loadSession, recordScopeWhere, sessionScopeWhere } from './access.js';
-import { MAXIMUM_DISTANCE_METERS, referenceMessage, validateReferenceReading, type GpsReading } from './proximity.service.js';
+import { isValidPoint, MAX_DISTANCE_METERS, reportedAccuracy, type LocationInput } from './location.service.js';
 
 export type EffectiveStatus = 'ACTIVE' | 'EXPIRED' | 'CLOSED' | 'REVOKED';
 
@@ -24,8 +24,6 @@ export type CreateSessionInput = {
   eventId?: string | null;
   title?: string;
   durationMinutes?: number;
-  /** The lecturer's own GPS reading, taken when the QR code is generated (the session reference point). */
-  reference?: GpsReading | null;
   locationVerificationEnabled?: boolean;
   selfieRequired?: boolean;
   requireEnrollment?: boolean;
@@ -50,45 +48,18 @@ async function mintToken(ctx: TenantContext, session: AttendanceSession) {
   return { token: raw, url: publicUrl(raw), expiresAt, rotationSeconds: rotation, sessionExpiresAt: session.expiresAt, serverTime: new Date() };
 }
 
-type Settings = Awaited<ReturnType<typeof settingsFor>>;
+type CopiedLocation = { latitude: number; longitude: number; accuracyMeters: number | null; capturedAt: Date | null; source: string | null };
 
-/** Validates the lecturer's reading; a poor or stale reading is refused and never stored. */
-function referenceFrom(reading: GpsReading | null | undefined, settings: Settings) {
-  const r = validateReferenceReading(reading, { lecturerMaxAccuracyM: settings.lecturerMaxAccuracyM, maxLocationAgeSeconds: settings.maxLocationAgeSeconds });
-  if (!r.ok) {
-    throw new AppError(422, r.outcome, referenceMessage(r, settings.lecturerMaxAccuracyM), {
-      reason: r.reason, maxAccuracyM: settings.lecturerMaxAccuracyM,
-      ...(r.accuracyMeters != null ? { accuracyM: Math.round(r.accuracyMeters) } : {}),
-      ...(r.ageSeconds != null ? { ageSeconds: r.ageSeconds } : {}),
-    });
-  }
-  return r;
-}
-
-type CopiedReference = { latitude: number; longitude: number; accuracyMeters: number | null; capturedAt: Date | null; source: string | null };
-
-export async function createSession(ctx: TenantContext, input: CreateSessionInput, req: Request, replaces?: string, copiedReference?: CopiedReference | null) {
+export async function createSession(ctx: TenantContext, input: CreateSessionInput, req: Request, replaces?: string, copiedLocation?: CopiedLocation | null) {
   if (!!input.classId === !!input.eventId) throw badRequest('Choose exactly one class or event', 'TARGET_REQUIRED');
   const target = await assertCanManageTarget(ctx, input);
   const settings = await settingsFor(ctx.organizationId);
   const now = new Date();
   const duration = input.durationMinutes ?? settings.defaultQrExpiryMin;
   const locationVerificationEnabled = input.locationVerificationEnabled ?? settings.locationRequired;
-  // Session-specific reference point: the lecturer's position now (or, for a replacement session,
-  // the reference of the session it replaces). Classroom coordinates are never used.
-  let reference: CopiedReference | null = null;
-  if (locationVerificationEnabled) {
-    if (input.reference) {
-      const r = referenceFrom(input.reference, settings);
-      reference = { latitude: r.latitude, longitude: r.longitude, accuracyMeters: r.accuracyMeters, capturedAt: now, source: 'LECTURER_GPS' };
-    } else if (copiedReference) {
-      reference = copiedReference;
-    } else {
-      throw new AppError(422, 'LECTURER_REFERENCE_LOCATION_INVALID',
-        'Your current GPS location is needed to generate this QR code: students must be within 20 m of where you are. Allow location access and try again, or turn off location verification.',
-        { reason: 'MISSING_READING' });
-    }
-  }
+  // The lecturer's location is saved right after this, from the session page. A replacement session
+  // is in the same room, so it starts with the location of the session it replaces.
+  const location = locationVerificationEnabled ? (copiedLocation ?? null) : null;
   const lateAfterMin = input.lateAfterMinutes === undefined ? settings.lateAfterMin : input.lateAfterMinutes;
   let lecturerId = ctx.lecturerId;
   if (!lecturerId && input.classId && 'lecturers' in target) {
@@ -108,14 +79,13 @@ export async function createSession(ctx: TenantContext, input: CreateSessionInpu
       createdByUserId: ctx.userId,
       startsAt: now,
       expiresAt: new Date(now.getTime() + duration * 60_000),
-      referenceLatitude: reference?.latitude ?? null,
-      referenceLongitude: reference?.longitude ?? null,
-      referenceAccuracyMeters: reference?.accuracyMeters ?? null,
-      referenceCapturedAt: reference?.capturedAt ?? null,
-      locationSource: reference?.source ?? null,
-      maxLocationAgeSeconds: settings.maxLocationAgeSeconds,
-      maximumDistanceMeters: MAXIMUM_DISTANCE_METERS,
-      studentMaxAccuracyM: settings.studentMaxAccuracyM,
+      referenceLatitude: location?.latitude ?? null,
+      referenceLongitude: location?.longitude ?? null,
+      referenceAccuracyMeters: location?.accuracyMeters ?? null,
+      referenceCapturedAt: location?.capturedAt ?? null,
+      locationSource: location?.source ?? null,
+      maximumDistanceMeters: MAX_DISTANCE_METERS,
+      studentMaxAccuracyM: MAX_DISTANCE_METERS, // retired column, still required by the schema
       locationVerificationEnabled,
       selfieRequired: input.selfieRequired ?? settings.selfieRequired,
       requireEnrollment: input.requireEnrollment ?? settings.requireEnrollment,
@@ -140,7 +110,6 @@ export async function createSession(ctx: TenantContext, input: CreateSessionInpu
     metadata: {
       classId: session.classId, eventId: session.eventId, expiresAt: session.expiresAt.toISOString(), replaces: replaces ?? null,
       locationVerificationEnabled, maximumDistanceMeters: session.maximumDistanceMeters,
-      reference: reference ? { accuracyMeters: reference.accuracyMeters, source: reference.source, capturedAt: reference.capturedAt?.toISOString() ?? null } : null,
     },
     req,
   });
@@ -258,43 +227,35 @@ export async function replaceSession(ctx: TenantContext, id: string, durationMin
     },
     req,
     s.id,
-    // Same room, same lecturer: the replacement keeps the original reference point.
+    // Same room, same lecturer: the replacement keeps the saved location.
     s.referenceLatitude != null && s.referenceLongitude != null
       ? { latitude: s.referenceLatitude, longitude: s.referenceLongitude, accuracyMeters: s.referenceAccuracyMeters, capturedAt: s.referenceCapturedAt, source: s.locationSource }
       : null,
   );
 }
 
-/**
- * Explicit, audited correction of a session's reference point (e.g. the first reading was taken
- * in the corridor). Only someone who can manage the session may do this, with a reason. Students
- * already accepted are re-checked against the new point when they submit.
- */
-export async function updateReferenceLocation(ctx: TenantContext, id: string, input: { reference: GpsReading; reason: string }, req: Request) {
+/** Saves the lecturer's current location as the point students are compared with. */
+export async function saveLecturerLocation(ctx: TenantContext, id: string, input: LocationInput, req: Request) {
   const s = await loadSession(ctx, id, 'manage');
   const st = effectiveStatus(s);
   if (st !== 'ACTIVE') throw conflict(`This session is ${st.toLowerCase()}`, `SESSION_${st}`);
   if (!s.locationVerificationEnabled) throw conflict('Location verification is off for this session', 'LOCATION_VERIFICATION_DISABLED');
-  const settings = await settingsFor(ctx.organizationId);
-  const r = referenceFrom(input.reference, settings);
+  if (!isValidPoint(input)) throw unprocessable('Your device did not return a usable location. Turn on location services and try again.', 'LOCATION_INVALID');
   const now = new Date();
+  const accuracy = reportedAccuracy(input);
   const updated = await ctx.db.attendanceSession.update({
     where: { id: s.id },
-    data: { referenceLatitude: r.latitude, referenceLongitude: r.longitude, referenceAccuracyMeters: r.accuracyMeters, referenceCapturedAt: now, locationSource: 'LECTURER_GPS' },
+    data: { referenceLatitude: input.latitude, referenceLongitude: input.longitude, referenceAccuracyMeters: accuracy, referenceCapturedAt: now, locationSource: 'LECTURER_DEVICE' },
   });
-  const moved = s.referenceLatitude != null && s.referenceLongitude != null
-    ? Math.round(haversineMeters(s.referenceLatitude, s.referenceLongitude, r.latitude, r.longitude) * 10) / 10
+  const movedMeters = s.referenceLatitude != null && s.referenceLongitude != null
+    ? Math.round(haversineMeters(s.referenceLatitude, s.referenceLongitude, input.latitude, input.longitude) * 10) / 10
     : null;
   await audit({
-    action: 'attendance_session.reference_location_changed', targetType: 'AttendanceSession', targetId: s.id,
-    metadata: {
-      reason: input.reason, movedMeters: moved,
-      previous: s.referenceLatitude != null ? { latitude: s.referenceLatitude, longitude: s.referenceLongitude, accuracyMeters: s.referenceAccuracyMeters, capturedAt: s.referenceCapturedAt?.toISOString() ?? null } : null,
-      current: { latitude: r.latitude, longitude: r.longitude, accuracyMeters: r.accuracyMeters, capturedAt: now.toISOString() },
-    },
+    action: 'attendance_session.location_saved', targetType: 'AttendanceSession', targetId: s.id,
+    metadata: { movedMeters, accuracyMeters: accuracy, capturedAt: now.toISOString() },
     req,
   });
-  emitToSession(ctx.organizationId, s.id, 'session:updated', { sessionId: s.id, referenceUpdated: true });
+  emitToSession(ctx.organizationId, s.id, 'session:updated', { sessionId: s.id, locationSaved: true });
   return { ...updated, effectiveStatus: effectiveStatus(updated) };
 }
 

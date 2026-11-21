@@ -314,12 +314,6 @@ function AttendanceTab() {
   if (!s) return <Spinner />;
   const up = (v: Partial<OrgSettings>) => setS({ ...s, ...v });
   const attErr: Record<string, string | undefined> = {
-    studentMaxAccuracyM: NUM_RANGE(s.studentMaxAccuracyM, 5, 100, 'student GPS accuracy'),
-    lecturerMaxAccuracyM: NUM_RANGE(s.lecturerMaxAccuracyM, 5, 50, 'lecturer GPS accuracy'),
-    maxLocationAgeSeconds: NUM_RANGE(s.maxLocationAgeSeconds, 5, 300, 'maximum reading age'),
-    locationTimeoutSeconds: NUM_RANGE(s.locationTimeoutSeconds, 10, 180, 'acquisition timeout'),
-    locationSampleCount: NUM_RANGE(s.locationSampleCount, 1, 20, 'number of readings'),
-    maxFailedLocationAttempts: NUM_RANGE(s.maxFailedLocationAttempts, 1, 100, 'number of attempts'),
     defaultQrExpiryMin: NUM_RANGE(s.defaultQrExpiryMin, 1, 1440, 'QR expiry'),
     defaultSessionDurationMin: NUM_RANGE(s.defaultSessionDurationMin, 1, 1440, 'session duration'),
     lateAfterMin: NUM_RANGE(s.lateAfterMin, 1, 1440, 'late threshold', true),
@@ -330,24 +324,10 @@ function AttendanceTab() {
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <Card title="Location verification">
-        <Toggle label="Verify students' location by default" description="Students must be within 20 m of the lecturer's GPS position, captured when the QR code is generated." checked={s.locationRequired} onChange={(v) => up({ locationRequired: v })} />
+        <Toggle label="Verify students' location by default" description="After a QR code is generated, the lecturer's browser shares their location. Each student's location is compared with it." checked={s.locationRequired} onChange={(v) => up({ locationRequired: v })} />
         <p className="mt-3 rounded-xl bg-brand-50 p-3 text-xs text-brand-900 dark:bg-brand-500/10 dark:text-brand-200">
-          <strong>Maximum distance: 20 m (fixed).</strong> A student is accepted when their distance plus their phone's reported uncertainty is at most 20 m,
-          rejected when their distance minus that uncertainty is more than 20 m, and asked to retry otherwise. Poor accuracy never widens the 20 m limit.
+          <strong>Maximum distance: 20 m (fixed).</strong> Students within 20 m of the lecturer can continue. Students further away are told they are not in class and cannot record attendance.
         </p>
-        <div className="mt-3 grid gap-4 sm:grid-cols-2">
-          <Input label="Lecturer GPS accuracy required (m)" type="number" min={5} max={50} error={ae('lecturerMaxAccuracyM')} value={s.lecturerMaxAccuracyM} onChange={num('lecturerMaxAccuracyM')} hint="A QR code is only generated when the lecturer's reading is at least this precise." />
-          <Input label="Student GPS accuracy required (m)" type="number" min={5} max={100} error={ae('studentMaxAccuracyM')} value={s.studentMaxAccuracyM} onChange={num('studentMaxAccuracyM')} hint="Less precise readings are treated as uncertain and the student retries." />
-          <Input label="Max reading age (seconds)" type="number" min={5} max={300} error={ae('maxLocationAgeSeconds')} value={s.maxLocationAgeSeconds} onChange={num('maxLocationAgeSeconds')} hint="Older (cached) readings are refused." />
-          <Input label="Acquisition timeout (seconds)" type="number" min={10} max={180} error={ae('locationTimeoutSeconds')} value={s.locationTimeoutSeconds} onChange={num('locationTimeoutSeconds')} hint="How long devices keep collecting readings." />
-          <Input label="Readings collected" type="number" min={1} max={20} error={ae('locationSampleCount')} value={s.locationSampleCount} onChange={num('locationSampleCount')} hint="Devices keep the most precise one (never an average)." />
-          <Input label="Max failed location checks" type="number" min={1} max={100} error={ae('maxFailedLocationAttempts')} value={s.maxFailedLocationAttempts} onChange={num('maxFailedLocationAttempts')} hint="Per device, per session, within 15 minutes (uncertain readings get 3× this)." />
-        </div>
-        {s.studentMaxAccuracyM > 20 && (
-          <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
-            Readings less precise than ±20 m can never be accepted (distance plus uncertainty would exceed 20 m), so a higher value only changes the guidance students see.
-          </p>
-        )}
       </Card>
       <Card title="Sessions & QR codes">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -364,8 +344,7 @@ function AttendanceTab() {
       </Card>
       <div className="flex items-end justify-end">
         <Button loading={save.isPending} onClick={() => { setTried(true); const e = firstError(attErr); if (e) return toast.error(e); save.mutate({
-          locationRequired: s.locationRequired, studentMaxAccuracyM: s.studentMaxAccuracyM, maxFailedLocationAttempts: s.maxFailedLocationAttempts,
-          lecturerMaxAccuracyM: s.lecturerMaxAccuracyM, maxLocationAgeSeconds: s.maxLocationAgeSeconds, locationTimeoutSeconds: s.locationTimeoutSeconds, locationSampleCount: s.locationSampleCount,
+          locationRequired: s.locationRequired,
           defaultQrExpiryMin: s.defaultQrExpiryMin, defaultSessionDurationMin: s.defaultSessionDurationMin, lateAfterMin: s.lateAfterMin, allowLateAttendance: s.allowLateAttendance,
           requireEnrollment: s.requireEnrollment, selfieRequired: s.selfieRequired, imageRetentionDays: s.imageRetentionDays,
         }); }}>Save attendance settings</Button>

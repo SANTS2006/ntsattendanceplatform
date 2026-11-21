@@ -11,13 +11,11 @@ const T = ['Attendance sessions'];
 const READ = ['attendance.read_all', 'attendance.read_assigned', 'attendance.sessions.create'] as const;
 const MANAGE = ['attendance.sessions.create', 'attendance.sessions.manage_all'] as const;
 
-/** Raw browser reading. Ranges are checked by the proximity service (structured outcomes). */
-export const gpsReading = z.object({
+/** The lecturer's device location. Ranges are checked by the location service. */
+const devicePoint = z.object({
   latitude: z.number().finite(),
   longitude: z.number().finite(),
-  accuracy: z.number().finite(),
-  timestamp: z.number().finite(),
-  clientTime: z.number().finite(),
+  accuracy: z.number().finite().nullable().optional(),
 });
 
 const createBody = z
@@ -26,8 +24,6 @@ const createBody = z
     eventId: z.string().uuid().nullable().optional(),
     title: z.string().trim().min(2).max(150).optional(),
     durationMinutes: z.number().int().min(1).max(24 * 60).optional(),
-    /** The lecturer's current GPS reading — becomes the session's fixed reference point. */
-    reference: gpsReading.nullable().optional(),
     locationVerificationEnabled: z.boolean().optional(),
     selfieRequired: z.boolean().optional(),
     requireEnrollment: z.boolean().optional(),
@@ -71,11 +67,10 @@ r(
 
 r(
   {
-    method: 'post', path: '/sessions/:id/reference-location', summary: "Correct the session's reference point (the lecturer's current GPS position); audited",
-    tags: T, access: 'tenant', permission: [...MANAGE], params: uuidParam,
-    body: z.object({ reference: gpsReading, reason: z.string().trim().min(5, 'Give a reason of at least 5 characters').max(300) }),
+    method: 'post', path: '/sessions/:id/location', summary: "Save the lecturer's current location for this session (students are compared with it); audited",
+    tags: T, access: 'tenant', permission: [...MANAGE], params: uuidParam, body: devicePoint,
   },
-  async (req, res) => ok(res, await svc.updateReferenceLocation(tenantCtx(req), req.valid.params.id, req.valid.body, req), { message: 'Reference location updated' }),
+  async (req, res) => ok(res, await svc.saveLecturerLocation(tenantCtx(req), req.valid.params.id, req.valid.body, req), { message: 'Location saved' }),
 );
 
 r({ method: 'post', path: '/sessions/:id/close', summary: 'Close a session (no further submissions)', tags: T, access: 'tenant', permission: [...MANAGE], params: uuidParam }, async (req, res) =>

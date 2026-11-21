@@ -69,13 +69,6 @@ const settingsBody = z
     studentIdAllowSpaces: z.boolean(),
     studentIdExample: z.string().trim().max(64).nullable(),
     locationRequired: z.boolean(),
-    /** Student readings less precise than this are "uncertain" (retry). The 20 m distance itself is fixed. */
-    studentMaxAccuracyM: z.number().int().min(5, 'Use at least 5 m').max(100, 'Use at most 100 m'),
-    /** The lecturer's reference reading must be at least this precise. */
-    lecturerMaxAccuracyM: z.number().int().min(5, 'Use at least 5 m').max(50, 'Use at most 50 m'),
-    maxLocationAgeSeconds: z.number().int().min(5).max(300),
-    locationTimeoutSeconds: z.number().int().min(10).max(180),
-    locationSampleCount: z.number().int().min(1).max(20),
     selfieRequired: z.boolean(),
     requireEnrollment: z.boolean(),
     defaultSessionDurationMin: z.number().int().min(1).max(24 * 60),
@@ -83,7 +76,6 @@ const settingsBody = z
     lateAfterMin: z.number().int().min(1).max(24 * 60).nullable(),
     allowLateAttendance: z.boolean(),
     imageRetentionDays: z.number().int().min(1).max(3650),
-    maxFailedLocationAttempts: z.number().int().min(1).max(100),
   })
   .partial();
 

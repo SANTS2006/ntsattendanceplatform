@@ -113,7 +113,17 @@ maximum student GPS uncertainty from 50 m to 25–30 m after testing in your cla
 | Full backend suite (other 115 tests) | **not re-run** — ~1.6 s per query from this machine to Neon makes it take hours; run it in CI |
 | Playwright E2E (8 specs, 2 new for venue capture) | **not run** — would write to the production database (see above) |
 
-## Lecturer-generated QR proximity verification (2026-11-17)
+## Simple lecturer-to-student location check (2026-11-21)
+
+Replaces the earlier location implementations at the owner's request. The session and QR code are
+created first, the session page then asks for the lecturer's location from any device, and each
+student's location is compared with it on the server: 20 m or less continues, more than 20 m shows
+"You are not in class" and blocks attendance. Accuracy thresholds, uncertain/retry outcomes, reading
+freshness, multi-sample acquisition, attempt caps, the map and the related settings were removed.
+No database migration: existing columns are reused and the retired settings columns are left unused.
+Real-device classroom testing is still needed.
+
+## Lecturer-generated QR proximity verification (2026-11-17, replaced)
 
 Replaces the permanent classroom geofence. Root causes addressed: (1) a classroom anchor saved once
 (sometimes from an imprecise or manual map position) was reused for every session, so a wrong anchor

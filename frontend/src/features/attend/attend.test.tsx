@@ -32,21 +32,20 @@ vi.mock('./api', async (orig) => {
     attendApi: { validate: (...a: unknown[]) => validate(...a), verifyStudent: (...a: unknown[]) => verifyStudent(...a), verifyLocation: (...a: unknown[]) => verifyLocation(...a), submit: (...a: unknown[]) => submit(...a), uploadSelfie: vi.fn(), confirmation: vi.fn() },
   };
 });
-// Location acquisition is unit-tested in src/lib/geo.test.ts; here it returns a controllable reading.
+// Reading the location is unit-tested in src/lib/geo.test.ts; here it returns a controllable point.
 const acquire = vi.fn();
 vi.mock('@/lib/geo', async (orig) => {
   const real = await orig<typeof import('@/lib/geo')>();
-  return { ...real, acquireLocation: (...a: unknown[]) => acquire(...a), locationPermission: () => Promise.resolve('granted') };
+  return { ...real, getCurrentLocation: (...a: unknown[]) => acquire(...a) };
 });
-const reading = (accuracy: number) => ({ latitude: 8.4844, longitude: -13.2344, accuracy, timestamp: Date.now() });
+const point = { latitude: 8.4844, longitude: -13.2344, accuracy: 8 };
 
 const { AttendPage } = await import('./AttendPage');
 
 const session = (over: Partial<{ locationVerificationEnabled: boolean; selfieRequired: boolean }> = {}) => ({
   attemptToken: 'attempt-1',
   organization: { name: 'Demo University', logoUrl: null },
-  session: { title: 'CS201', context: 'CS201 — Data Structures', type: 'CLASS', lecturer: 'Dr. K', expiresAt: new Date(Date.now() + 600_000).toISOString(), serverTime: new Date().toISOString(), locationVerificationEnabled: false, selfieRequired: false, ...over,
-    locationPolicy: over.locationVerificationEnabled ? { maximumDistanceMeters: 20, maxAccuracyM: 20, maxLocationAgeSeconds: 30, timeoutSeconds: 60, sampleCount: 5, maxAttempts: 5 } : null },
+  session: { title: 'CS201', context: 'CS201 — Data Structures', type: 'CLASS', lecturer: 'Dr. K', expiresAt: new Date(Date.now() + 600_000).toISOString(), serverTime: new Date().toISOString(), locationVerificationEnabled: false, selfieRequired: false, ...over, maximumDistanceMeters: 20 },
   studentIdFormat: fmt,
 });
 
@@ -94,54 +93,38 @@ describe('AttendPage', () => {
     expect(await screen.findByText('QR code expired')).toBeInTheDocument();
   });
 
-  it('requires location first and shows a confident outside-20 m result as a rejection', async () => {
+  it('asks for the location automatically and blocks a student more than 20 m away', async () => {
     validate.mockResolvedValue(session({ locationVerificationEnabled: true }));
-    acquire.mockResolvedValue({ status: 'ACCEPTABLE', best: reading(8), samples: [reading(8)], stable: true, spreadM: 1 });
-    verifyLocation.mockRejectedValue(new ApiError(403, 'LOCATION_OUTSIDE_RADIUS', 'You are about 64 m from your lecturer, which is outside the 20 m attendance distance (your reading was ±8 m).', { outcome: 'LOCATION_OUTSIDE_RADIUS', retryable: false, distanceM: 64, accuracyM: 8, maximumDistanceMeters: 20 }));
+    acquire.mockResolvedValue(point);
+    verifyLocation.mockRejectedValue(new ApiError(403, 'NOT_IN_CLASS', 'You are not in class. You are about 64 m from your lecturer and must be within 20 m to record attendance.', { distanceM: 64, maximumDistanceMeters: 20 }));
     renderPage();
-    const input = await screen.findByLabelText('Student ID');
-    expect(input.closest('fieldset')).toBeDisabled();
-    expect(screen.getByText(/within/).textContent).toMatch(/20 m/);
-    await act(async () => {
-      await userEvent.setup().click(screen.getByRole('button', { name: /share my location/i }));
-    });
     const alert = await screen.findByTestId('location-error');
-    expect(alert).toHaveAttribute('data-code', 'LOCATION_OUTSIDE_RADIUS');
-    expect(alert.className).toContain('rose');
-    expect(alert.textContent).toMatch(/about 64 m from your lecturer/);
-    expect(input.closest('fieldset')).toBeDisabled(); // student ID stays locked
+    expect(acquire).toHaveBeenCalledTimes(1);
+    expect(alert).toHaveAttribute('data-code', 'NOT_IN_CLASS');
+    expect(alert.textContent).toMatch(/You are not in class/);
+    expect(screen.getByLabelText('Student ID').closest('fieldset')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /record my attendance/i })).toBeDisabled();
   });
 
-  it('poor accuracy is sent to the server and shown as retry guidance, not a rejection; retry can succeed', async () => {
+  it('lets a student within 20 m continue', async () => {
     validate.mockResolvedValue(session({ locationVerificationEnabled: true }));
-    acquire.mockResolvedValueOnce({ status: 'INSUFFICIENT_ACCURACY', best: reading(1_000), samples: [reading(1_000)], stable: false, spreadM: null });
-    verifyLocation.mockRejectedValueOnce(new ApiError(422, 'LOCATION_UNCERTAIN', 'Your location is only accurate to about ±1,000 m, which is too imprecise to check the 20 m attendance distance.', { outcome: 'LOCATION_UNCERTAIN', reason: 'POOR_ACCURACY', retryable: true, accuracyM: 1000, maximumDistanceMeters: 20 }));
+    acquire.mockResolvedValue(point);
+    verifyLocation.mockResolvedValue({ attemptToken: 'attempt-loc', accepted: true, distanceM: 6, maximumDistanceMeters: 20 });
     renderPage();
-    const user = userEvent.setup();
-    await screen.findByLabelText('Student ID');
-    await act(async () => { await user.click(screen.getByRole('button', { name: /share my location/i })); });
-    const alert = await screen.findByTestId('location-error');
-    expect(alert).toHaveAttribute('data-code', 'LOCATION_UNCERTAIN');
-    expect(alert.className).toContain('amber');
-    expect(alert.textContent).toMatch(/only accurate to about ±1,000 m/);
-    expect(alert.textContent).not.toMatch(/outside/i);
-    // Retry with a precise reading succeeds; the server-signed attempt token is kept for the next steps.
-    acquire.mockResolvedValueOnce({ status: 'ACCEPTABLE', best: reading(5), samples: [reading(5)], stable: true, spreadM: 1 });
-    verifyLocation.mockResolvedValueOnce({ attemptToken: 'attempt-loc', outcome: 'LOCATION_ACCEPTED', accepted: true, distanceM: 6, accuracyM: 5, maximumDistanceMeters: 20, message: 'ok' });
-    await act(async () => { await user.click(screen.getByRole('button', { name: /try again/i })); });
-    expect(await screen.findByTestId('location-accepted')).toHaveTextContent(/Location accepted.*about 6 m away, reading ±5 m/);
+    expect(await screen.findByTestId('location-accepted')).toHaveTextContent(/You are in class.*about 6 m away/);
     expect(verifyLocation.mock.calls[0][1]).toBe('attempt-1');
     expect(screen.getByLabelText('Student ID').closest('fieldset')).not.toBeDisabled();
   });
 
-  it('a session without a valid lecturer location stops with a clear screen', async () => {
+  it('can try again after the lecturer shares their location', async () => {
     validate.mockResolvedValue(session({ locationVerificationEnabled: true }));
-    acquire.mockResolvedValue({ status: 'ACCEPTABLE', best: reading(5), samples: [reading(5)], stable: true, spreadM: 1 });
-    verifyLocation.mockRejectedValue(new ApiError(409, 'LECTURER_REFERENCE_LOCATION_INVALID', 'This session does not have a valid lecturer location.'));
+    acquire.mockResolvedValue(point);
+    verifyLocation.mockRejectedValueOnce(new ApiError(409, 'LECTURER_LOCATION_MISSING', "Your lecturer's location is not available yet."));
     renderPage();
-    await screen.findByLabelText('Student ID');
-    await act(async () => { await userEvent.setup().click(screen.getByRole('button', { name: /share my location/i })); });
-    expect(await screen.findByText('Session location not set')).toBeInTheDocument();
+    expect(await screen.findByTestId('location-error')).toHaveAttribute('data-code', 'LECTURER_LOCATION_MISSING');
+    verifyLocation.mockResolvedValueOnce({ attemptToken: 'attempt-loc', accepted: true, distanceM: 3, maximumDistanceMeters: 20 });
+    await act(async () => { await userEvent.setup().click(screen.getByRole('button', { name: /try again/i })); });
+    expect(await screen.findByTestId('location-accepted')).toBeInTheDocument();
   });
 
   it('explains permission denial', async () => {
@@ -149,8 +132,6 @@ describe('AttendPage', () => {
     const { GeoError, GEO_MESSAGES } = await import('@/lib/geo');
     acquire.mockRejectedValueOnce(new GeoError('DENIED', GEO_MESSAGES.DENIED));
     renderPage();
-    await screen.findByLabelText('Student ID');
-    await act(async () => { await userEvent.setup().click(screen.getByRole('button', { name: /share my location/i })); });
     expect(await screen.findByText(/Location permission was denied/)).toBeInTheDocument();
   });
 

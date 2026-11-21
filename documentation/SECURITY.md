@@ -59,25 +59,16 @@ tickets (RLS-protected); organizations can only read their own conversations and
 
 ## Honest limits
 
-- **Browser GPS coordinates are untrusted and can be spoofed** (developer tools, mock-location apps).
-  The lecturer-generated QR proximity check improves proximity checking; it does not guarantee
-  physical presence. Selfies, rotating QR codes and short expiry add deterrence.
-- Proximity policy (`modules/attendance/proximity.service.ts`): each session's reference point is the
-  lecturer's GPS position when the QR code is generated (fresh, within the lecturer accuracy limit,
-  otherwise refused and not stored). The server alone computes the Haversine distance to each
-  student reading and applies the fixed 20 m rule with the device's reported uncertainty: accepted
-  only when distance + accuracy ≤ 20 m, rejected only when distance − accuracy > 20 m, otherwise
-  *uncertain* (retry). The limit is never widened for poor accuracy; stale or timestamp-less readings
-  are refused. Reference coordinates are never returned to students.
-- The reference point changes only through an authorized, audited action
-  (`attendance_session.reference_location_changed`, with reason, old and new point); accepted
-  students are re-checked against the current point at submit.
-- Location is the first step: student-ID lookups (and their enumeration caps) only start after the
-  server has accepted the device's location. The accepted reading is signed into the short-lived
-  attempt token bound to the QR token, session and tenant, so submit cannot be fed a different
-  reading or a token from another session. Failed checks are capped per client and session
-  (uncertain readings have a larger allowance) and raise security events; route-level rate limits
-  apply as well. Geolocation requires HTTPS and is limited to this origin by `Permissions-Policy`.
+- **Browser location is untrusted and can be spoofed** (developer tools, mock-location apps). The
+  location check does not guarantee physical presence. Selfies, rotating QR codes and short expiry
+  add deterrence.
+- Location policy (`modules/attendance/location.service.ts`): the lecturer shares their location
+  after creating the session (authorized and audited). The server alone computes the distance to
+  each student and allows 20 m or less. Lecturer coordinates are never returned to students.
+- Location is the first step: student-ID lookups only start after the server has accepted the
+  device's location. The accepted location is signed into the short-lived attempt token bound to the
+  QR token, session and tenant, and is compared again at submit. Route-level rate limits apply.
+  Geolocation requires HTTPS and is limited to this origin by `Permissions-Policy`.
 - A selfie is an audit and deterrence aid. It is not biometric identity verification; records say
   `CAPTURED_NOT_BIOMETRICALLY_VERIFIED`. Face matching and liveness can be added as modules.
 

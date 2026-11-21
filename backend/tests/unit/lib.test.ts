@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { checkFreshness, haversineMeters } from '../../src/lib/geo.js';
-import { evaluateProximity, MAXIMUM_DISTANCE_METERS, proximityMessage, referenceMessage, validateReferenceReading } from '../../src/modules/attendance/proximity.service.js';
+import { haversineMeters } from '../../src/lib/geo.js';
+import { compareLocations, isValidPoint, LOCATION_MESSAGES, MAX_DISTANCE_METERS, reportedAccuracy } from '../../src/modules/attendance/location.service.js';
 import { normalizeStudentId, publicStudentIdFormat, validateStudentId, type StudentIdConfig } from '../../src/lib/studentId.js';
 import { generateTotpSecret, totp, verifyTotp } from '../../src/lib/totp.js';
 import { decrypt, encrypt, referenceNumber } from '../../src/lib/crypto.js';
@@ -31,118 +31,30 @@ describe('haversine', () => {
   });
 });
 
-describe('proximity verification (lecturer reference point, 20 m)', () => {
-  const active = { status: 'ACTIVE', expiresAt: new Date(Date.now() + 600_000) };
-  const policy = { maximumDistanceMeters: MAXIMUM_DISTANCE_METERS, studentMaxAccuracyM: 20, maxLocationAgeSeconds: 30, requireTimestamp: true };
-  const at = (m: number, accuracy: number, ageMs = 1_000) => ({ ...north(m), accuracy, timestamp: Date.now() - ageMs, clientTime: Date.now() });
-  const check = (reading: Parameters<typeof evaluateProximity>[0]['reading'], over: Partial<Parameters<typeof evaluateProximity>[0]> = {}) =>
-    evaluateProximity({ session: active, reference: ref, reading, policy, ...over });
+describe('location comparison (20 m)', () => {
+  const lecturer = { latitude: 8.4844, longitude: -13.2344 };
+  const away = (m: number) => ({ latitude: lecturer.latitude + m / 111_195, longitude: lecturer.longitude });
 
-  it('the limit is fixed at 20 metres', () => {
-    expect(MAXIMUM_DISTANCE_METERS).toBe(20);
+  it('the limit is 20 m', () => expect(MAX_DISTANCE_METERS).toBe(20));
+  it.each([0, 5, 10, 15, 19, 20])('%i m is in class', (m) => expect(compareLocations(lecturer, away(m)).inClass).toBe(true));
+  it.each([20.02, 21, 50, 1000])('%f m is not in class', (m) => expect(compareLocations(lecturer, away(m)).inClass).toBe(false));
+  it('computes the distance', () => expect(compareLocations(lecturer, away(15)).distanceMeters).toBeCloseTo(15, 1));
+
+  it('rejects unusable coordinates', () => {
+    for (const p of [null, {}, { latitude: 91, longitude: 0 }, { latitude: 0, longitude: 181 }, { latitude: 0, longitude: 0 }, { latitude: Number.NaN, longitude: 1 }]) {
+      expect(isValidPoint(p)).toBe(false);
+    }
+    expect(isValidPoint(lecturer)).toBe(true);
   });
 
-  // Exact device readings (accuracy 0) isolate the distance rule.
-  it.each([
-    [0, 'LOCATION_ACCEPTED'], [5, 'LOCATION_ACCEPTED'], [10, 'LOCATION_ACCEPTED'], [15, 'LOCATION_ACCEPTED'],
-    [19, 'LOCATION_ACCEPTED'], [20, 'LOCATION_ACCEPTED'], [21, 'LOCATION_OUTSIDE_RADIUS'], [50, 'LOCATION_OUTSIDE_RADIUS'],
-  ])('student at %i m (exact reading) → %s', (m, outcome) => {
-    const r = check(at(m, 0));
-    expect(r.outcome).toBe(outcome);
-    expect(r.distanceMeters).toBeCloseTo(m, 1);
-    expect(r.maximumDistanceMeters).toBe(20);
+  it('keeps only a sensible reported accuracy', () => {
+    expect(reportedAccuracy({ accuracy: 12 })).toBe(12);
+    expect(reportedAccuracy({ accuracy: -1 })).toBeNull();
+    expect(reportedAccuracy({})).toBeNull();
   });
 
-  // Realistic readings: accept only when distance + accuracy ≤ 20.
-  it.each([
-    [0, 5, 'LOCATION_ACCEPTED'], [5, 5, 'LOCATION_ACCEPTED'], [10, 10, 'LOCATION_ACCEPTED'], [15, 5, 'LOCATION_ACCEPTED'],
-    [15, 6, 'LOCATION_UNCERTAIN'], [19, 1, 'LOCATION_ACCEPTED'], [19, 5, 'LOCATION_UNCERTAIN'], [20, 3, 'LOCATION_UNCERTAIN'],
-    [21, 3, 'LOCATION_UNCERTAIN'], [24, 3, 'LOCATION_OUTSIDE_RADIUS'], [50, 10, 'LOCATION_OUTSIDE_RADIUS'],
-  ])('student at %i m with ±%i m → %s', (m, acc, outcome) => {
-    expect(check(at(m, acc)).outcome).toBe(outcome);
-  });
-
-  it('boundary straddling is uncertain (retry), never a rejection', () => {
-    const r = check(at(18, 8));
-    expect(r).toMatchObject({ outcome: 'LOCATION_UNCERTAIN', reason: 'BOUNDARY', retryable: true, accepted: false });
-    expect(proximityMessage(r)).not.toMatch(/outside/i);
-  });
-
-  it('poor student accuracy is uncertain with retry guidance, even when the student is at the lecturer', () => {
-    const r = check(at(0, 45));
-    expect(r).toMatchObject({ outcome: 'LOCATION_UNCERTAIN', reason: 'POOR_ACCURACY', retryable: true });
-    expect(proximityMessage(r)).toContain('±45 m');
-    expect(proximityMessage(r)).not.toMatch(/outside/i);
-    // The 20 m limit is never widened to compensate for poor accuracy.
-    expect(check(at(25, 25)).outcome).toBe('LOCATION_UNCERTAIN');
-  });
-
-  it('a very imprecise reading that is still confidently far away is outside', () => {
-    expect(check(at(5_000, 500)).outcome).toBe('LOCATION_OUTSIDE_RADIUS');
-  });
-
-  it('stale or timestamp-less readings are LOCATION_STALE', () => {
-    expect(check(at(0, 5, 31_000))).toMatchObject({ outcome: 'LOCATION_STALE', reason: 'READING_TOO_OLD', ageSeconds: 31, retryable: true });
-    expect(check({ ...north(0), accuracy: 5 })).toMatchObject({ outcome: 'LOCATION_STALE', reason: 'NO_READING_TIMESTAMP' });
-    // Without the requirement (server-signed claims) a missing timestamp is only flagged.
-    expect(check({ ...north(0), accuracy: 5 }, { policy: { ...policy, requireTimestamp: false } }).outcome).toBe('LOCATION_ACCEPTED');
-  });
-
-  it('invalid or missing readings are LOCATION_ACQUISITION_FAILED', () => {
-    expect(check(null)).toMatchObject({ outcome: 'LOCATION_ACQUISITION_FAILED', reason: 'MISSING_READING' });
-    expect(check({ latitude: 91, longitude: 0, accuracy: 5, timestamp: Date.now(), clientTime: Date.now() })).toMatchObject({ reason: 'INVALID_COORDINATES' });
-    expect(check({ latitude: 8, longitude: 181, accuracy: 5, timestamp: Date.now(), clientTime: Date.now() })).toMatchObject({ reason: 'INVALID_COORDINATES' });
-    expect(check({ ...north(0), accuracy: -1, timestamp: Date.now(), clientTime: Date.now() })).toMatchObject({ reason: 'MISSING_ACCURACY' });
-    expect(check({ ...north(0), accuracy: null, timestamp: Date.now(), clientTime: Date.now() })).toMatchObject({ reason: 'MISSING_ACCURACY' });
-  });
-
-  it('a session without a valid reference point cannot accept anyone', () => {
-    expect(check(at(0, 5), { reference: { latitude: null, longitude: null } }).outcome).toBe('LECTURER_REFERENCE_LOCATION_INVALID');
-    expect(check(at(0, 5), { reference: { latitude: 95, longitude: 0 } }).outcome).toBe('LECTURER_REFERENCE_LOCATION_INVALID');
-  });
-
-  it('expired or closed sessions are ATTENDANCE_SESSION_EXPIRED', () => {
-    expect(check(at(0, 5), { session: { status: 'ACTIVE', expiresAt: new Date(Date.now() - 1) } }).outcome).toBe('ATTENDANCE_SESSION_EXPIRED');
-    expect(check(at(0, 5), { session: { status: 'CLOSED', expiresAt: active.expiresAt } }).outcome).toBe('ATTENDANCE_SESSION_EXPIRED');
-  });
-
-  it('flags implausible readings for staff review without changing the decision', () => {
-    const r = check({ ...ref, accuracy: 0, timestamp: Date.now(), clientTime: Date.now() });
-    expect(r.outcome).toBe('LOCATION_ACCEPTED');
-    expect(r.flags).toEqual(expect.arrayContaining(['ACCURACY_IMPLAUSIBLY_PRECISE', 'COORDINATES_IDENTICAL_TO_REFERENCE']));
-  });
-});
-
-describe('lecturer reference reading', () => {
-  const policy = { lecturerMaxAccuracyM: 20, maxLocationAgeSeconds: 30 };
-  const lect = (accuracy: number, ageMs = 1_000) => ({ ...ref, accuracy, timestamp: Date.now() - ageMs, clientTime: Date.now() });
-
-  it('accepts a fresh, precise reading', () => {
-    expect(validateReferenceReading(lect(8), policy)).toMatchObject({ ok: true, ...ref, accuracyMeters: 8 });
-    expect(validateReferenceReading(lect(20), policy).ok).toBe(true);
-  });
-
-  it.each([21, 1_000, 20_000])('refuses ±%i m (never saved)', (acc) => {
-    const r = validateReferenceReading(lect(acc), policy);
-    expect(r).toMatchObject({ ok: false, outcome: 'LECTURER_REFERENCE_LOCATION_INVALID', reason: 'POOR_ACCURACY', accuracyMeters: acc });
-    if (!r.ok) expect(referenceMessage(r, 20)).toContain(`approximately ${acc.toLocaleString('en')} m`);
-  });
-
-  it('refuses stale, timestamp-less, invalid and (0,0) readings', () => {
-    expect(validateReferenceReading(lect(5, 31_000), policy)).toMatchObject({ ok: false, reason: 'READING_TOO_OLD' });
-    expect(validateReferenceReading({ ...ref, accuracy: 5 }, policy)).toMatchObject({ ok: false, reason: 'NO_READING_TIMESTAMP' });
-    expect(validateReferenceReading({ latitude: 0, longitude: 0, accuracy: 5, timestamp: Date.now(), clientTime: Date.now() }, policy)).toMatchObject({ ok: false, reason: 'INVALID_COORDINATES' });
-    expect(validateReferenceReading({ latitude: -91, longitude: 0, accuracy: 5, timestamp: Date.now(), clientTime: Date.now() }, policy)).toMatchObject({ ok: false, reason: 'INVALID_COORDINATES' });
-    expect(validateReferenceReading(null, policy)).toMatchObject({ ok: false, reason: 'MISSING_READING' });
-  });
-
-  it('freshness: rejects stale readings and tolerates skewed clocks with a flag', () => {
-    const now = Date.now();
-    expect(checkFreshness({ timestamp: now - 2_000, clientTime: now }, 30)).toMatchObject({ ok: true, ageMs: 2_000 });
-    expect(checkFreshness({ timestamp: now - 31_000, clientTime: now }, 30)).toMatchObject({ ok: false, code: 'STALE', ageMs: 31_000 });
-    expect(checkFreshness({}, 30)).toMatchObject({ ok: true, flags: ['NO_READING_TIMESTAMP'] });
-    expect(checkFreshness({}, 30, { requireTimestamp: true }).ok).toBe(false);
-    expect(checkFreshness({ timestamp: now + 60_000, clientTime: now }, 30)).toMatchObject({ ok: true, flags: ['READING_TIMESTAMP_IN_FUTURE'] });
+  it('tells the student they are not in class', () => {
+    expect(LOCATION_MESSAGES.notInClass(64.2)).toBe('You are not in class. You are about 64 m from your lecturer and must be within 20 m to record attendance.');
   });
 });
 

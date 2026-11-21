@@ -751,17 +751,17 @@ model AttendanceSession {
   expiresAt                   DateTime
   closedAt                    DateTime?
   revokedAt                   DateTime?
-  /// Lecturer's position when the QR code was generated — the session-specific reference point.
-  /// Fixed for the whole session; changed only by an explicit, audited action.
+  /// Lecturer's location, saved after the session and QR code are created. Null until shared.
+  /// Students are compared with it; updated only by an explicit, audited action.
   referenceLatitude           Float?
   referenceLongitude          Float?
   referenceAccuracyMeters     Float?
   referenceCapturedAt         DateTime?
-  /// LECTURER_GPS (current) — GPS/MAP on sessions created before session reference points.
+  /// LECTURER_DEVICE (current). Older sessions may hold LECTURER_GPS, GPS or MAP.
   locationSource              String?
-  /// Students must be within this distance of the reference point (always 20 m for new sessions).
+  /// Students must be within this distance of the lecturer (always 20 m for new sessions).
   maximumDistanceMeters       Int
-  /// Student readings less precise than this are treated as uncertain (snapshot of the setting).
+  /// Retired: accuracy no longer affects the decision. Still required, so written as 20.
   studentMaxAccuracyM         Int
   maxLocationAgeSeconds       Int                      @default(30)
   locationVerificationEnabled Boolean

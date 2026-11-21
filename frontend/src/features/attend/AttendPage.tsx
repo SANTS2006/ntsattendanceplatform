@@ -9,8 +9,8 @@ import { Button } from '@/components/ui';
 import { Logo } from '@/components/Logo';
 import { ThemeToggle } from '@/theme/ThemeProvider';
 import { SelfieCapture } from './SelfieCapture';
-import { acquireLocation, GEO_MESSAGES, GeoError, locationPermission } from '@/lib/geo';
-import { attendApi, formatSatisfied, type ProximityDetails, type SuccessResult, type ValidateResult, type VerifiedStudent } from './api';
+import { GEO_MESSAGES, GeoError, getCurrentLocation } from '@/lib/geo';
+import { attendApi, formatSatisfied, type SuccessResult, type ValidateResult, type VerifiedStudent } from './api';
 
 type Fatal = { code: string; title: string; message: string; icon: ReactNode; retry?: boolean };
 
@@ -18,7 +18,6 @@ const FATAL: Record<string, Omit<Fatal, 'code' | 'message'> & { message?: string
   QR_INVALID: { title: 'Invalid QR code', icon: <QrCode className="h-8 w-8" /> },
   QR_EXPIRED: { title: 'QR code expired', icon: <Clock className="h-8 w-8" /> },
   ATTENDANCE_SESSION_EXPIRED: { title: 'Attendance session ended', icon: <Clock className="h-8 w-8" /> },
-  LECTURER_REFERENCE_LOCATION_INVALID: { title: 'Session location not set', icon: <MapPinOff className="h-8 w-8" /> },
   SESSION_CLOSED: { title: 'Attendance closed', icon: <XCircle className="h-8 w-8" /> },
   SESSION_REVOKED: { title: 'QR code revoked', icon: <XCircle className="h-8 w-8" /> },
   ATTEMPT_INVALID: { title: 'Please scan again', icon: <RefreshCw className="h-8 w-8" />, retry: true },
@@ -27,7 +26,6 @@ const FATAL: Record<string, Omit<Fatal, 'code' | 'message'> & { message?: string
   NETWORK_ERROR: { title: 'No connection', icon: <WifiOff className="h-8 w-8" />, retry: true },
   ALREADY_RECORDED: { title: 'Already recorded', icon: <CheckCircle2 className="h-8 w-8" /> },
   TOO_MANY_ATTEMPTS: { title: 'Too many attempts', icon: <AlertCircle className="h-8 w-8" /> },
-  LOCATION_ATTEMPTS_EXCEEDED: { title: 'Too many location checks', icon: <MapPinOff className="h-8 w-8" /> },
   LATE_NOT_ALLOWED: { title: 'Attendance window passed', icon: <Clock className="h-8 w-8" /> },
 };
 
@@ -153,11 +151,11 @@ export function AttendPage() {
   const [attempt, setAttempt] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
 
-  // Location (first step when required): readings are judged by the server, never here.
+  // Location (first step when required): the server compares it with the lecturer's and decides.
   const [locState, setLocState] = useState<'idle' | 'locating' | 'checking' | 'ok' | 'error'>('idle');
-  /** `tone`: 'retry' for poor/uncertain/stale readings (not a rejection), 'outside' when confidently too far. */
-  const [locError, setLocError] = useState<{ code: string; message: string; tone: 'retry' | 'outside' } | null>(null);
-  const [accepted, setAccepted] = useState<{ distanceM: number; accuracyM: number } | null>(null);
+  const [locError, setLocError] = useState<{ code: string; message: string } | null>(null);
+  const [distanceM, setDistanceM] = useState<number | null>(null);
+  const askedLocation = useRef(false);
 
   // Student ID
   const [studentInput, setStudentInput] = useState('');
@@ -206,55 +204,37 @@ export function AttendPage() {
   const totalSteps = 1 + (needLocation ? 1 : 0) + (needSelfie ? 1 : 0) + 1;
   const locationDone = !needLocation || locState === 'ok';
 
-  const [locAccuracy, setLocAccuracy] = useState<number | null>(null);
-  const [permission, setPermission] = useState<'granted' | 'prompt' | 'denied' | 'unknown'>('unknown');
-  useEffect(() => {
-    void locationPermission().then(setPermission);
-  }, []);
-
-  const [locSamples, setLocSamples] = useState(0);
-  const [locFailures, setLocFailures] = useState(0);
-
-  /**
-   * Location step: collect fresh high-accuracy readings, keep the most precise one, and send it to
-   * the server, which computes the distance to the lecturer's reference point and decides:
-   * accepted, outside (confidently more than 20 m away) or uncertain (retry — never shown as a rejection).
-   */
   async function locate() {
     if (!attempt || !info) return;
-    const policy = info.session.locationPolicy;
     setLocError(null);
-    setAccepted(null);
-    setLocAccuracy(null);
-    setLocSamples(0);
+    setDistanceM(null);
     setLocState('locating');
     try {
-      const r = await acquireLocation({
-        targetAccuracyM: Math.min(policy?.maxAccuracyM ?? 20, 10),
-        timeoutMs: (policy?.timeoutSeconds ?? 60) * 1000,
-        maxAgeMs: (policy?.maxLocationAgeSeconds ?? 30) * 1000,
-        maxSamples: policy?.sampleCount ?? 5,
-        onSample: (p) => { setLocSamples(p.samples); if (p.best) setLocAccuracy(Math.round(p.best.accuracy)); },
-      });
+      const point = await getCurrentLocation();
       setLocState('checking');
-      const check = await attendApi.verifyLocation(token, attempt, r.best);
+      const check = await attendApi.verifyLocation(token, attempt, point);
       setAttempt(check.attemptToken); // carries the server-accepted location to the next steps
-      setAccepted({ distanceM: check.distanceM, accuracyM: check.accuracyM });
+      setDistanceM(check.distanceM);
       setLocState('ok');
     } catch (e) {
       setLocState('error');
       if (e instanceof ApiError) {
         if (toFatal(e)) return;
-        setLocFailures((n) => n + 1);
-        const d = e.errors as ProximityDetails;
-        setLocError({ code: e.code, message: e.message, tone: e.code === 'LOCATION_OUTSIDE_RADIUS' && d.retryable === false ? 'outside' : 'retry' });
+        setLocError({ code: e.code, message: e.message });
       } else if (e instanceof GeoError) {
-        setLocError({ code: e.code, message: e.message, tone: 'retry' });
+        setLocError({ code: e.code, message: e.message });
       } else {
-        setLocError({ code: 'UNAVAILABLE', message: GEO_MESSAGES.UNAVAILABLE, tone: 'retry' });
+        setLocError({ code: 'UNAVAILABLE', message: GEO_MESSAGES.UNAVAILABLE });
       }
     }
   }
+
+  // Ask for the student's location as soon as the QR code has been validated.
+  useEffect(() => {
+    if (!needLocation || !attempt || askedLocation.current) return;
+    askedLocation.current = true;
+    void locate();
+  }, [needLocation, attempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Automatic student ID verification once the configured format is satisfied (debounced).
   useEffect(() => {
@@ -275,7 +255,7 @@ export function AttendPage() {
         if (e instanceof ApiError && ['ALREADY_RECORDED', 'TOO_MANY_ATTEMPTS', 'QR_EXPIRED', 'ATTENDANCE_SESSION_EXPIRED', 'SESSION_CLOSED', 'SESSION_REVOKED', 'ATTEMPT_INVALID'].includes(e.code) && toFatal(e)) return;
         if (e instanceof ApiError && e.code === 'LOCATION_NOT_VERIFIED') {
           setLocState('error');
-          setLocError({ code: e.code, message: e.message, tone: 'retry' });
+          setLocError({ code: e.code, message: e.message });
         }
         setIdState('error');
         setIdError(e instanceof ApiError ? e.message : 'Network error. Check your connection and try again.');
@@ -319,12 +299,11 @@ export function AttendPage() {
       }
     } catch (e) {
       if (toFatal(e)) return;
-      // The session's reference point may have been corrected since your location was accepted:
-      // confirm your location again (your student ID stays verified).
-      if (e instanceof ApiError && ['LOCATION_OUTSIDE_RADIUS', 'LOCATION_UNCERTAIN', 'LOCATION_NOT_VERIFIED'].includes(e.code)) {
+      // The lecturer may have updated their location since this student's was accepted.
+      if (e instanceof ApiError && ['NOT_IN_CLASS', 'LECTURER_LOCATION_MISSING', 'LOCATION_INVALID', 'LOCATION_NOT_VERIFIED'].includes(e.code)) {
         setLocState('error');
-        setAccepted(null);
-        setLocError({ code: e.code, message: e.message, tone: e.code === 'LOCATION_OUTSIDE_RADIUS' ? 'outside' : 'retry' });
+        setDistanceM(null);
+        setLocError({ code: e.code, message: e.message });
       }
       setSubmitError(e instanceof ApiError ? e.message : 'Network error. Your attendance was not recorded yet — please try again.');
     } finally {
@@ -376,53 +355,29 @@ export function AttendPage() {
             <p className="flex items-start gap-2 text-sm text-emerald-700" data-testid="location-accepted">
               <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
-                <strong>Location accepted.</strong> You are within {info.session.locationPolicy?.maximumDistanceMeters ?? 20} m of your lecturer
-                {accepted && <> (about {accepted.distanceM} m away, reading ±{accepted.accuracyM} m)</>}.
+                <strong>You are in class.</strong> You are within {info.session.maximumDistanceMeters} m of your lecturer
+                {distanceM != null && <> (about {distanceM} m away)</>}.
               </span>
             </p>
           ) : (
             <>
               <p className="mb-3 text-sm text-slate-600">
-                You must be within <strong>{info.session.locationPolicy?.maximumDistanceMeters ?? 20} m</strong> of where your lecturer generated this QR code.
-                Your location is only used for this check.
+                You must be within <strong>{info.session.maximumDistanceMeters} m</strong> of your lecturer. Choose <strong>Allow</strong> when your browser asks for your location.
               </p>
-              {permission === 'prompt' && !locError && (
-                <p className="mb-3 rounded-lg bg-brand-50 p-3 text-sm text-brand-800">Your browser will ask to use your location — tap <strong>Allow</strong>.</p>
-              )}
-              {permission === 'denied' && !locError && (
-                <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">Location is blocked for this site. Allow it in your browser’s site settings (the icon next to the address), then tap the button below.</p>
-              )}
               {(locState === 'locating' || locState === 'checking') && (
-                <ol className="mb-3 space-y-1 text-sm" aria-live="polite" data-testid="location-progress">
-                  <li className="flex items-center gap-2 text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Location permission</li>
-                  <li className={clsx('flex items-center gap-2', locState === 'locating' ? 'text-slate-700' : 'text-emerald-700')}>
-                    {locState === 'locating' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                    {locAccuracy == null ? 'Getting a fresh GPS reading…' : `GPS reading ${locSamples}: best accuracy ±${locAccuracy} m`}
-                  </li>
-                  <li className={clsx('flex items-center gap-2', locState === 'checking' ? 'text-slate-700' : 'text-slate-400')}>
-                    {locState === 'checking' ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />} Checking your distance from your lecturer
-                  </li>
-                  {locState === 'locating' && <li className="text-xs text-slate-500">Stand still — this can take up to {info.session.locationPolicy?.timeoutSeconds ?? 60} seconds.</li>}
-                </ol>
+                <p className="mb-3 flex items-center gap-2 text-sm text-slate-700" aria-live="polite" data-testid="location-progress">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {locState === 'locating' ? 'Getting your location…' : 'Comparing with your lecturer’s location…'}
+                </p>
               )}
               {locError && (
-                <div
-                  className={clsx('mb-3 flex gap-2 rounded-lg p-3 text-sm', locError.tone === 'outside' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-900')}
-                  role="alert"
-                  data-testid="location-error"
-                  data-code={locError.code}
-                >
-                  {locError.tone === 'outside' ? <MapPinOff className="mt-0.5 h-4 w-4 shrink-0" /> : <RefreshCw className="mt-0.5 h-4 w-4 shrink-0" />}
-                  <span>
-                    {locError.message}
-                    {info.session.locationPolicy && locFailures > 0 && locError.code !== 'DENIED' && (
-                      <span className="mt-1 block text-xs font-semibold">Checks used: {locFailures}. Your lecturer can record your attendance manually if your phone cannot get a precise location.</span>
-                    )}
-                  </span>
+                <div className="mb-3 flex gap-2 rounded-lg bg-rose-50 p-3 text-sm text-rose-700" role="alert" data-testid="location-error" data-code={locError.code}>
+                  <MapPinOff className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{locError.message}</span>
                 </div>
               )}
               <Button size="lg" className="w-full" onClick={locate} loading={locState === 'locating' || locState === 'checking'} icon={<MapPin className="h-5 w-5" />}>
-                {locState === 'locating' ? 'Getting a precise location…' : locState === 'checking' ? 'Checking…' : locError ? 'Try again' : 'Share my location'}
+                {locState === 'locating' ? 'Getting your location…' : locState === 'checking' ? 'Checking…' : locError ? 'Try again' : 'Share my location'}
               </Button>
             </>
           )}

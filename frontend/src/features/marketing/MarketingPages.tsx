@@ -136,7 +136,7 @@ function HeroModel() {
 
 const STEPS = [
   { icon: QrCode, title: 'The lecturer projects a QR code', body: 'One click starts a session. The code expires in minutes and can rotate every 30 seconds, so a photo sent to the hostel group chat is useless.' },
-  { icon: MapPinned, title: 'The phone proves where it is', body: 'The phone collects fresh GPS readings and keeps the most precise one. The server — never the phone — measures the distance to the classroom.' },
+  { icon: MapPinned, title: 'The phone shares where it is', body: 'The student allows location access. The server compares it with the lecturer\'s location and only continues within 20 m.' },
   { icon: Fingerprint, title: 'The student ID checks itself', body: 'Students type their ID; a live counter shows progress and verification starts automatically when the format is complete. No accounts, no app.' },
   { icon: Camera, title: 'A quick selfie', body: 'Optional front-camera photo, stripped of metadata and stored privately for your organization — a strong deterrent against proxy sign-ins.' },
   { icon: CheckCircle2, title: 'Recorded once, seen live', body: 'One record per student per session — duplicates are impossible. The lecturer watches check-ins arrive on the live dashboard.' },
@@ -306,7 +306,7 @@ function ScrollStory() {
 
 const FEATURES = [
   { icon: QrCode, title: 'Dynamic, expiring QR codes', body: 'Unpredictable 256-bit tokens, expiry from 5 minutes, instant revocation and optional 30-second rotation.' },
-  { icon: MapPin, title: 'Server-verified geofencing', body: 'Fresh, precise readings only. The server measures the distance to the classroom (14–20 m) and never widens it for a poor signal.' },
+  { icon: MapPin, title: 'Lecturer-to-student location check', body: 'The server compares each student\'s location with the lecturer\'s. Students more than 20 m away cannot record attendance.' },
   { icon: Fingerprint, title: 'Automatic student ID check', body: 'Your own ID format with a live counter; verification starts the moment the ID is complete.' },
   { icon: Camera, title: 'Selfie capture', body: 'Front-camera photo, metadata stripped, stored privately with short-lived links and retention controls.' },
   { icon: Radio, title: 'Live lecturer dashboard', body: 'Check-ins appear instantly. See who is absent, correct records with a reason, add manual entries.' },
@@ -322,7 +322,7 @@ const FEATURES = [
 const STATS = [
   { value: 1000, suffix: '', label: 'check-ins in 10.5 s', note: 'measured load test, 0 failures' },
   { value: 1, suffix: '', label: 'record per student, per session', note: '15 simultaneous duplicate attempts → 1 record' },
-  { value: 20, suffix: ' m', label: 'maximum geofence radius', note: 'verified on the server, 14–20 m' },
+  { value: 20, suffix: ' m', label: 'maximum distance from lecturer', note: 'checked on the server' },
   { value: 256, suffix: '-bit', label: 'QR token entropy', note: 'expiring, revocable, rotating' },
 ];
 
@@ -348,7 +348,7 @@ const USE_CASES = [
 
 const FAQ = [
   ['Do students need to install anything?', 'No. Students scan the QR code with their phone camera and complete the check-in in the browser. Staff can optionally install NTSAttend as an app.'],
-  ['Can a student check in from outside the classroom?', 'The phone must provide a fresh, precise location inside your geofence (14–20 m), and the server makes the decision. GPS raises the bar significantly, but like any browser location it is not absolute proof — NTSAttend records signals so staff can review anomalies.'],
+  ['Can a student check in from outside the classroom?', 'The student\'s location must be within 20 m of the lecturer\'s, and the server makes the decision. Browser location raises the bar, but it is not absolute proof, and indoor readings can be off by more than 20 m.'],
   ['What happens if the location is imprecise indoors?', 'The phone keeps collecting readings and uses the most precise one. If it is still too imprecise, the student sees why and can retry — near a window or after a few seconds is usually enough.'],
   ['How do lecturers get accounts?', 'When an administrator adds a lecturer (one by one or by import), NTSAttend creates the account in that organization and emails a link to set a password. If the person already has an NTSAttend account, it is simply added.'],
   ['Can a lecturer also run their own organization?', 'Yes. One login can belong to several organizations. A lecturer can create their own organization and be its owner, then switch between it and the institutions they work for. Data never mixes.'],
@@ -691,7 +691,7 @@ export function HowItWorksPage() {
     { icon: Fingerprint, title: 'Set your rules', body: 'Student ID format, location radius and accuracy, selfie and enrollment requirements.' },
     { icon: Upload, title: 'Import your data', body: 'Students, departments, programs, courses, classes and lecturers from Excel or CSV.' },
     { icon: UserCog, title: 'Add lecturers', body: 'Each lecturer gets an account automatically and an email to set their password.' },
-    { icon: MapPinned, title: 'Register venues', body: 'Capture each classroom by GPS at the venue, or place it precisely on the map.' },
+    { icon: MapPinned, title: 'Share your location', body: 'After generating the QR code, allow location access so students can be compared with where you are.' },
     { icon: QrCode, title: 'Run sessions', body: 'Lecturers start a session, project the QR code and watch attendance arrive live.' },
   ];
   return (
